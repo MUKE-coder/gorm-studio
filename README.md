@@ -21,11 +21,23 @@ A **Prisma Studio-like** visual database browser and editor for Go applications 
 ### 1. Install
 
 ```bash
-# In your Go project
+# Create a new Project
+go mod init github.com/yourusername/your-project
+
+# In your Go project Install Studio
 go get github.com/MUKE-coder/gorm-studio/studio
 ```
 
-Or copy the `studio/` package into your project.
+## Install Other Packages
+
+```go
+go get github.com/gin-gonic/gin
+go get gorm.io/gorm
+go get gorm.io/driver/postgres
+go get github.com/glebarez/sqlite
+go get github.com/joho/godotenv
+
+```
 
 ### 2A. Mount in your Gin app USING SQLITE
 
@@ -64,9 +76,11 @@ func main() {
 }
 
 ```
+
 ### 2B Mount in your Gin app USING postgress
 
 #### ENV FILE
+
 ```env
 PGHOST=''
 PGDATABASE='neondb'
@@ -158,19 +172,19 @@ studio/
 
 ## 🔌 API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET`  | `/studio` | Web UI |
-| `GET`  | `/studio/api/schema` | Get full database schema |
-| `POST` | `/studio/api/schema/refresh` | Re-introspect schema |
-| `GET`  | `/studio/api/tables/:table/rows` | List rows (paginated, filterable) |
-| `GET`  | `/studio/api/tables/:table/rows/:id` | Get single row |
-| `POST` | `/studio/api/tables/:table/rows` | Create row |
-| `PUT`  | `/studio/api/tables/:table/rows/:id` | Update row |
-| `DELETE` | `/studio/api/tables/:table/rows/:id` | Delete row |
-| `POST` | `/studio/api/tables/:table/rows/bulk-delete` | Bulk delete |
-| `GET`  | `/studio/api/tables/:table/rows/:id/relations/:rel` | Get related rows |
-| `POST` | `/studio/api/sql` | Execute raw SQL |
+| Method   | Endpoint                                            | Description                       |
+| -------- | --------------------------------------------------- | --------------------------------- |
+| `GET`    | `/studio`                                           | Web UI                            |
+| `GET`    | `/studio/api/schema`                                | Get full database schema          |
+| `POST`   | `/studio/api/schema/refresh`                        | Re-introspect schema              |
+| `GET`    | `/studio/api/tables/:table/rows`                    | List rows (paginated, filterable) |
+| `GET`    | `/studio/api/tables/:table/rows/:id`                | Get single row                    |
+| `POST`   | `/studio/api/tables/:table/rows`                    | Create row                        |
+| `PUT`    | `/studio/api/tables/:table/rows/:id`                | Update row                        |
+| `DELETE` | `/studio/api/tables/:table/rows/:id`                | Delete row                        |
+| `POST`   | `/studio/api/tables/:table/rows/bulk-delete`        | Bulk delete                       |
+| `GET`    | `/studio/api/tables/:table/rows/:id/relations/:rel` | Get related rows                  |
+| `POST`   | `/studio/api/sql`                                   | Execute raw SQL                   |
 
 ### Query Parameters for listing rows:
 
