@@ -81,11 +81,11 @@ GORM Studio queries `information_schema.tables` and `information_schema.columns`
 
 - Table names (from the `public` schema)
 - Column names, data types, nullability, and defaults
-- Column types use PostgreSQL native types (`integer`, `text`, `character varying`, `boolean`, `timestamp with time zone`, etc.)
+- Column types using PostgreSQL native types (`integer`, `text`, `character varying`, `boolean`, `timestamp with time zone`, etc.)
 
 ### Connection String
 
-Use the standard PostgreSQL DSN format:
+Use the standard PostgreSQL DSN (Data Source Name) format:
 
 ```go
 dsn := "host=localhost user=postgres password=postgres dbname=myapp port=5432 sslmode=disable"
@@ -125,9 +125,9 @@ EXPLAIN ANALYZE SELECT * FROM products WHERE category_id = 1;
 SELECT pg_size_pretty(pg_total_relation_size('products'));
 ```
 
-### Known Considerations
+### Known Limitations
 
 - PostgreSQL schemas other than `public` are not currently supported for introspection
 - Array types (`text[]`, `integer[]`) appear as their base type in the column info
-- JSONB columns are supported — data displays as JSON strings in the UI
-- UUID primary keys work, but the URL parameter is passed as a string
+- `JSONB` columns are supported — data displays as JSON strings in the UI
+- `UUID` primary keys work, but the URL parameter is passed as a string

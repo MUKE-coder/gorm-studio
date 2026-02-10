@@ -28,7 +28,7 @@ go mod init github.com/yourusername/your-project
 go get github.com/MUKE-coder/gorm-studio/studio
 ```
 
-## Install Other Packages
+### Install Other Packages
 
 ```go
 go get github.com/gin-gonic/gin
