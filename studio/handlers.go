@@ -214,7 +214,7 @@ func (h *Handlers) GetRow(c *gin.Context) {
 	query = applyCompositePK(query, h, pks, id)
 
 	var row map[string]interface{}
-	result := query.First(&row)
+	result := query.Take(&row)
 	if result.Error != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": (&ErrRowNotFound{Table: tableName, ID: id}).Error()})
 		return
