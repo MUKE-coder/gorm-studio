@@ -46,18 +46,18 @@ package main
 
 import (
 	"log"
+	"net/http"
 
 	"github.com/MUKE-coder/gorm-studio/studio"
-
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
 type User struct {
-	ID    uint   `gorm:"primarykey"`
-	Name  string `gorm:"size:100"`
-	Email string `gorm:"size:200;uniqueIndex"`
+	ID    uint   `gorm:"primarykey" json:"id"`
+	Name  string `gorm:"size:100" json:"name" binding:"required"`
+	Email string `gorm:"size:200;uniqueIndex" json:"email" binding:"required,email"`
 }
 
 func main() {
@@ -68,6 +68,20 @@ func main() {
 	db.AutoMigrate(&User{})
 
 	router := gin.Default()
+
+	// POST /users - Create a new user
+	router.POST("/users", func(c *gin.Context) {
+		var user User
+		if err := c.ShouldBindJSON(&user); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if result := db.Create(&user); result.Error != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+			return
+		}
+		c.JSON(http.StatusCreated, gin.H{"data": user})
+	})
 
 	// Mount GORM Studio — that's it!
 	studio.Mount(router, db, []interface{}{&User{}})
