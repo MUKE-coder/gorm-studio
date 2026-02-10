@@ -33,30 +33,36 @@ Or copy the `studio/` package into your project.
 package main
 
 import (
-    "github.com/MUKE-coder/gorm-studio/studio"
+	"log"
 
-    "github.com/gin-gonic/gin"
-    "gorm.io/driver/sqlite"
-    "gorm.io/gorm"
+	"github.com/MUKE-coder/gorm-studio/studio"
+
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 type User struct {
-    ID    uint   `gorm:"primarykey"`
-    Name  string `gorm:"size:100"`
-    Email string `gorm:"size:200;uniqueIndex"`
+	ID    uint   `gorm:"primarykey"`
+	Name  string `gorm:"size:100"`
+	Email string `gorm:"size:200;uniqueIndex"`
 }
 
 func main() {
-    db, _ := gorm.Open(sqlite.Open("app.db"), &gorm.Config{})
-    db.AutoMigrate(&User{})
+	db, err := gorm.Open(sqlite.Open("app.db"), &gorm.Config{})
+	if err != nil {
+		log.Fatal("Failed to connect to database:", err)
+	}
+	db.AutoMigrate(&User{})
 
-    router := gin.Default()
+	router := gin.Default()
 
-    // Mount GORM Studio — that's it!
-    studio.Mount(router, db, []interface{}{&User{}})
+	// Mount GORM Studio — that's it!
+	studio.Mount(router, db, []interface{}{&User{}})
 
-    router.Run(":8080")
+	router.Run(":8080")
 }
+
 ```
 
 ### 3. Open in browser
