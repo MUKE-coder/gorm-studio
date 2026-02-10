@@ -27,7 +27,7 @@ go get github.com/MUKE-coder/gorm-studio/studio
 
 Or copy the `studio/` package into your project.
 
-### 2. Mount in your Gin app
+### 2A. Mount in your Gin app USING SQLITE
 
 ```go
 package main
@@ -50,6 +50,68 @@ type User struct {
 
 func main() {
 	db, err := gorm.Open(sqlite.Open("app.db"), &gorm.Config{})
+	if err != nil {
+		log.Fatal("Failed to connect to database:", err)
+	}
+	db.AutoMigrate(&User{})
+
+	router := gin.Default()
+
+	// Mount GORM Studio — that's it!
+	studio.Mount(router, db, []interface{}{&User{}})
+
+	router.Run(":8080")
+}
+
+```
+### 2B Mount in your Gin app USING postgress
+
+```env
+PGHOST=''
+PGDATABASE='neondb'
+PGUSER='neondb_owner'
+PGPASSWORD=''
+PGSSLMODE='require'
+PGCHANNELBINDING='require'
+```
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/MUKE-coder/gorm-studio/studio"
+	"github.com/joho/godotenv"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+)
+
+type User struct {
+	ID    uint   `gorm:"primarykey"`
+	Name  string `gorm:"size:100"`
+	Email string `gorm:"size:200;uniqueIndex"`
+}
+
+func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file:", err)
+	}
+
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=%s channel_binding=%s",
+		os.Getenv("PGHOST"),
+		os.Getenv("PGUSER"),
+		os.Getenv("PGPASSWORD"),
+		os.Getenv("PGDATABASE"),
+		os.Getenv("PGSSLMODE"),
+		os.Getenv("PGCHANNELBINDING"),
+	)
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
