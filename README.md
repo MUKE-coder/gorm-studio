@@ -66,6 +66,7 @@ func main() {
 ```
 ### 2B Mount in your Gin app USING postgress
 
+#### ENV FILE
 ```env
 PGHOST=''
 PGDATABASE='neondb'
@@ -74,6 +75,8 @@ PGPASSWORD=''
 PGSSLMODE='require'
 PGCHANNELBINDING='require'
 ```
+
+#### MAIN FILE
 
 ```go
 package main
