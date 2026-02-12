@@ -10,7 +10,7 @@ GORM Studio does not include built-in authentication. Instead, you can use Gin's
 2. JWT authentication
 3. Session-based authentication
 
-## Approach 1: Basic Auth (Simplest)
+## Approach 1: Basic Auth
 
 ```go
 package main

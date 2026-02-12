@@ -1,6 +1,6 @@
 # Setting Up a Read-Only Data Viewer
 
-This example shows how to configure GORM Studio as a safe, read-only data browser for teams that need to view database contents without the ability to modify data.
+This example shows how to configure GORM Studio as a secure, read-only data browser for teams that need to view database contents without the ability to modify data.
 
 ## Use Cases
 
@@ -108,7 +108,7 @@ When `DisableSQL: true` is also set:
 
 ## Using a Read-Only Database User
 
-For maximum safety, connect with a database user that only has read permissions:
+For maximum safety, connect with a database user that has read-only permissions:
 
 ### PostgreSQL
 
@@ -119,7 +119,7 @@ GRANT CONNECT ON DATABASE myapp TO studio_reader;
 GRANT USAGE ON SCHEMA public TO studio_reader;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO studio_reader;
 
--- For future tables
+-- Ensure permissions for future tables
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO studio_reader;
 ```
 
