@@ -14,9 +14,10 @@ import (
 
 // Handlers holds the API handler dependencies
 type Handlers struct {
-	DB     *gorm.DB
-	Models []interface{}
-	Schema *SchemaInfo
+	DB       *gorm.DB
+	Models   []interface{}
+	Schema   *SchemaInfo
+	ReadOnly bool
 }
 
 // NewHandlers creates a new Handlers instance
@@ -442,8 +443,17 @@ func (h *Handlers) ExecuteSQL(c *gin.Context) {
 
 	query := strings.TrimSpace(body.Query)
 
-	// Determine if it's a read or write query
+	// Block DDL and dangerous statements
 	upperQuery := strings.ToUpper(query)
+	blockedPrefixes := []string{"DROP", "ALTER", "TRUNCATE", "CREATE", "ATTACH", "DETACH", "GRANT", "REVOKE"}
+	for _, prefix := range blockedPrefixes {
+		if strings.HasPrefix(upperQuery, prefix) {
+			c.JSON(http.StatusForbidden, gin.H{"error": fmt.Sprintf("%s statements are not allowed", prefix)})
+			return
+		}
+	}
+
+	// Determine if it's a read or write query
 	isRead := strings.HasPrefix(upperQuery, "SELECT") ||
 		strings.HasPrefix(upperQuery, "EXPLAIN") ||
 		strings.HasPrefix(upperQuery, "PRAGMA") ||
@@ -473,6 +483,11 @@ func (h *Handlers) ExecuteSQL(c *gin.Context) {
 			"type":          "read",
 		})
 	} else {
+		if h.ReadOnly {
+			c.JSON(http.StatusForbidden, gin.H{"error": "write queries are not allowed in read-only mode"})
+			return
+		}
+
 		result := h.DB.Exec(query)
 		if result.Error != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": result.Error.Error()})
@@ -536,7 +551,12 @@ func (h *Handlers) ExportTable(c *gin.Context) {
 				if val == nil {
 					record[i] = ""
 				} else {
-					record[i] = fmt.Sprintf("%v", val)
+					s := fmt.Sprintf("%v", val)
+					// Sanitize formula injection: prefix with single quote
+					if len(s) > 0 && (s[0] == '=' || s[0] == '+' || s[0] == '-' || s[0] == '@') {
+						s = "'" + s
+					}
+					record[i] = s
 				}
 			}
 			writer.Write(record)

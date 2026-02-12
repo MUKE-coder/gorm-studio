@@ -222,7 +222,8 @@ func introspectSQLite(db *gorm.DB) []TableInfo {
 			PK        int     `gorm:"column:pk"`
 		}
 
-		db.Raw(fmt.Sprintf("PRAGMA table_info('%s')", tn.Name)).Scan(&columns)
+		safeName := strings.ReplaceAll(tn.Name, `"`, `""`)
+		db.Raw(fmt.Sprintf(`PRAGMA table_info("%s")`, safeName)).Scan(&columns)
 
 		for _, col := range columns {
 			ci := ColumnInfo{
@@ -248,7 +249,7 @@ func introspectSQLite(db *gorm.DB) []TableInfo {
 			From  string `gorm:"column:from"`
 			To    string `gorm:"column:to"`
 		}
-		db.Raw(fmt.Sprintf("PRAGMA foreign_key_list('%s')", tn.Name)).Scan(&fks)
+		db.Raw(fmt.Sprintf(`PRAGMA foreign_key_list("%s")`, safeName)).Scan(&fks)
 
 		for _, fk := range fks {
 			for i, col := range table.Columns {

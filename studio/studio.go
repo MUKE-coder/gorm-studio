@@ -2,6 +2,7 @@ package studio
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/gin-contrib/cors"
@@ -43,10 +44,22 @@ func Mount(router *gin.Engine, db *gorm.DB, models []interface{}, configs ...Con
 		}
 	}
 
+	// Warn if no auth middleware is configured
+	if cfg.AuthMiddleware == nil {
+		log.Println("[GORM Studio] WARNING: No authentication middleware configured. Studio routes are publicly accessible. Add AuthMiddleware to protect your data.")
+	}
+	if !cfg.ReadOnly && cfg.AuthMiddleware == nil {
+		log.Println("[GORM Studio] WARNING: Write operations are enabled without authentication. Consider setting ReadOnly: true or adding AuthMiddleware.")
+	}
+	if !cfg.DisableSQL && cfg.AuthMiddleware == nil {
+		log.Println("[GORM Studio] WARNING: Raw SQL endpoint is enabled without authentication. Consider setting DisableSQL: true or adding AuthMiddleware.")
+	}
+
 	handlers, err := NewHandlers(db, models)
 	if err != nil {
 		return fmt.Errorf("mounting studio: %w", err)
 	}
+	handlers.ReadOnly = cfg.ReadOnly
 
 	group := router.Group(cfg.Prefix)
 

