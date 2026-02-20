@@ -1,0 +1,110 @@
+---
+title: CORS Configuration
+description: Configure Cross-Origin Resource Sharing (CORS) in GORM Studio to allow requests from specific frontend origins.
+---
+
+If your frontend application is served from a different origin than your Go backend, you need to configure CORS so the browser allows requests to the studio API endpoints.
+
+## CORSAllowOrigins
+
+The `CORSAllowOrigins` field on `studio.Config` accepts a list of allowed origin URLs.
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    CORSAllowOrigins: []string{"http://localhost:3000", "https://myapp.com"},
+})
+```
+
+When `CORSAllowOrigins` contains one or more entries, GORM Studio automatically adds [gin-contrib/cors](https://github.com/gin-contrib/cors) middleware to the studio route group with the following settings:
+
+| Setting | Value |
+|---|---|
+| **AllowOrigins** | The origins you specify in `CORSAllowOrigins` |
+| **AllowMethods** | `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS` |
+| **AllowHeaders** | `Origin`, `Content-Type`, `Authorization` |
+| **AllowCredentials** | `true` |
+
+## Default Behavior
+
+If `CORSAllowOrigins` is empty or not set (the default), **no CORS middleware is added**. This is the correct behavior when the studio UI and API are served from the same origin.
+
+```go
+// No CORS middleware is added -- same-origin setup
+studio.Mount(router, db, models, studio.Config{})
+```
+
+## Examples
+
+### Local Development
+
+When developing locally with a frontend dev server on a separate port:
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    CORSAllowOrigins: []string{"http://localhost:3000"},
+})
+```
+
+### Multiple Origins
+
+Allow requests from several origins, such as a local dev server and a production domain:
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    CORSAllowOrigins: []string{
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://myapp.com",
+        "https://admin.myapp.com",
+    },
+})
+```
+
+### Production with Auth
+
+Combine CORS with authentication for a production setup where the frontend is on a different domain:
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    CORSAllowOrigins: []string{"https://myapp.com"},
+    AuthMiddleware: gin.BasicAuth(gin.Accounts{
+        "admin": os.Getenv("STUDIO_PASSWORD"),
+    }),
+})
+```
+
+## How It Works
+
+When configured, GORM Studio creates the CORS middleware like this internally:
+
+```go
+import "github.com/gin-contrib/cors"
+
+corsConfig := cors.Config{
+    AllowOrigins:     config.CORSAllowOrigins,
+    AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+    AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+    AllowCredentials: true,
+}
+
+studioGroup.Use(cors.New(corsConfig))
+```
+
+The `AllowCredentials: true` setting is important because it enables the browser to send cookies and `Authorization` headers with cross-origin requests, which is required when using `AuthMiddleware`.
+
+:::note
+CORS only applies to the studio route group. It does not affect other routes in your Gin router. If you need CORS for your entire application, configure it separately at the router level.
+:::
+
+## Troubleshooting
+
+### Requests blocked by CORS policy
+
+If you see errors like `Access to fetch at ... has been blocked by CORS policy` in your browser console, verify that:
+
+1. The origin in the error message exactly matches one of your `CORSAllowOrigins` entries (including the scheme and port).
+2. You have not included a trailing slash in the origin URL. Use `http://localhost:3000`, not `http://localhost:3000/`.
+
+### Preflight requests failing
+
+The CORS middleware handles `OPTIONS` preflight requests automatically. If these are failing, ensure no other middleware in your Gin router is intercepting `OPTIONS` requests before they reach the studio route group.

@@ -1,0 +1,143 @@
+---
+title: Authentication
+description: Protect your GORM Studio instance with authentication middleware using Basic Auth, JWT tokens, or any custom Gin middleware.
+---
+
+The `AuthMiddleware` field on `studio.Config` accepts any `gin.HandlerFunc`, giving you full control over how access to the studio is protected. When set, this middleware runs before every studio route.
+
+## Why Authentication Matters
+
+GORM Studio provides direct access to your database -- browsing tables, editing records, and optionally running raw SQL. In any environment beyond local development, you should always configure authentication.
+
+## Basic Auth
+
+The simplest approach uses Gin's built-in `gin.BasicAuth` middleware. The browser will prompt for credentials automatically.
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    AuthMiddleware: gin.BasicAuth(gin.Accounts{
+        "admin": "secret-password",
+    }),
+})
+```
+
+For production, load credentials from environment variables:
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    AuthMiddleware: gin.BasicAuth(gin.Accounts{
+        os.Getenv("STUDIO_USER"): os.Getenv("STUDIO_PASSWORD"),
+    }),
+})
+```
+
+## JWT Authentication
+
+For applications that already use JWT tokens, you can validate the `Authorization` header in a custom middleware.
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    AuthMiddleware: func(c *gin.Context) {
+        token := c.GetHeader("Authorization")
+        if token == "" {
+            c.AbortWithStatusJSON(401, gin.H{"error": "unauthorized"})
+            return
+        }
+        // Validate JWT token here
+        c.Next()
+    },
+})
+```
+
+A more complete JWT example using a validation library:
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    AuthMiddleware: func(c *gin.Context) {
+        tokenString := c.GetHeader("Authorization")
+        if tokenString == "" {
+            c.AbortWithStatusJSON(401, gin.H{"error": "missing token"})
+            return
+        }
+
+        // Strip "Bearer " prefix
+        tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+
+        token, err := jwt.Parse(tokenString, func(t *jwt.Token) (any, error) {
+            return []byte(os.Getenv("JWT_SECRET")), nil
+        })
+        if err != nil || !token.Valid {
+            c.AbortWithStatusJSON(401, gin.H{"error": "invalid token"})
+            return
+        }
+
+        c.Next()
+    },
+})
+```
+
+## Session-Based Authentication
+
+If your application uses cookie-based sessions, you can check the session state in middleware.
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    AuthMiddleware: func(c *gin.Context) {
+        session := sessions.Default(c)
+        userID := session.Get("user_id")
+        if userID == nil {
+            c.AbortWithStatusJSON(401, gin.H{"error": "not logged in"})
+            return
+        }
+
+        // Optional: check for admin role
+        role := session.Get("role")
+        if role != "admin" {
+            c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
+            return
+        }
+
+        c.Next()
+    },
+})
+```
+
+## Startup Warnings
+
+When no `AuthMiddleware` is configured, GORM Studio logs warnings at startup to alert you. These warnings appear in your application's standard output:
+
+```
+[GORM Studio] WARNING: No authentication middleware configured...
+```
+
+If write operations are also enabled (the default), an additional warning is logged:
+
+```
+[GORM Studio] WARNING: Write operations are enabled without authentication...
+```
+
+And if the raw SQL editor is enabled (also the default):
+
+```
+[GORM Studio] WARNING: Raw SQL endpoint is enabled without authentication...
+```
+
+These warnings are intentionally noisy to encourage you to secure the studio before deploying to any shared or public environment.
+
+:::caution
+Never run GORM Studio without authentication in production. The warnings logged at startup are a safety net, not a substitute for proper configuration. Always set `AuthMiddleware` in non-development environments.
+:::
+
+## Combining Auth with Other Settings
+
+Authentication pairs well with other config options for defense in depth:
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    AuthMiddleware: gin.BasicAuth(gin.Accounts{
+        "admin": os.Getenv("STUDIO_PASSWORD"),
+    }),
+    ReadOnly:   true,  // Even authenticated users can only read
+    DisableSQL: true,  // Prevent arbitrary SQL queries
+})
+```

@@ -1,0 +1,123 @@
+---
+title: "Rows API"
+description: "CRUD API endpoints for managing table data."
+---
+
+## GET /studio/api/tables/:table/rows
+
+List rows with pagination, sorting, searching, and filtering.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| page | integer | 1 | Page number |
+| page_size | integer | 50 | Rows per page (max 500) |
+| sort_by | string | - | Column to sort by |
+| sort_order | string | asc | Sort direction: `asc` or `desc` |
+| search | string | - | Full-text search across text columns |
+| show_deleted | boolean | false | Include soft-deleted rows |
+| filter_\<column\> | string | - | Filter by column value (`%` for LIKE) |
+
+**Response:**
+
+```json
+{
+  "data": [...],
+  "total": 100,
+  "page": 1,
+  "page_size": 50
+}
+```
+
+**Filtering examples:**
+
+```bash
+# Exact match
+curl "http://localhost:8080/studio/api/tables/users/rows?filter_role=admin"
+
+# LIKE match (contains "john")
+curl "http://localhost:8080/studio/api/tables/users/rows?filter_name=%25john%25"
+
+# Combined filters with sorting
+curl "http://localhost:8080/studio/api/tables/users/rows?filter_role=admin&sort_by=created_at&sort_order=desc"
+```
+
+---
+
+## GET /studio/api/tables/:table/rows/:id
+
+Get a single row by primary key. Supports composite primary keys with comma-separated IDs.
+
+```bash
+# Simple primary key
+curl http://localhost:8080/studio/api/tables/users/rows/1
+
+# Composite primary key
+curl http://localhost:8080/studio/api/tables/user_roles/rows/1,3
+```
+
+---
+
+## POST /studio/api/tables/:table/rows
+
+Create a new row. Send a JSON body with column values. Not available in ReadOnly mode.
+
+```bash
+curl -X POST http://localhost:8080/studio/api/tables/users/rows \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Alice", "email": "alice@example.com"}'
+```
+
+---
+
+## PUT /studio/api/tables/:table/rows/:id
+
+Update a row. Send a JSON body with the fields to update. Not available in ReadOnly mode.
+
+```bash
+curl -X PUT http://localhost:8080/studio/api/tables/users/rows/1 \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Alice Smith"}'
+```
+
+---
+
+## DELETE /studio/api/tables/:table/rows/:id
+
+Delete a row. Not available in ReadOnly mode.
+
+```bash
+curl -X DELETE http://localhost:8080/studio/api/tables/users/rows/1
+```
+
+---
+
+## POST /studio/api/tables/:table/rows/bulk-delete
+
+Delete multiple rows at once. Not available in ReadOnly mode.
+
+**Request:**
+
+```json
+{"ids": ["1", "2", "3"]}
+```
+
+```bash
+curl -X POST http://localhost:8080/studio/api/tables/users/rows/bulk-delete \
+  -H "Content-Type: application/json" \
+  -d '{"ids": ["1", "2", "3"]}'
+```
+
+---
+
+## GET /studio/api/tables/:table/rows/:id/relations/:relation
+
+Get related rows for a specific record and relationship name.
+
+```bash
+# Get all posts for user with ID 1
+curl http://localhost:8080/studio/api/tables/users/rows/1/relations/Posts
+```
+
+The relationship name must match the name returned in the schema's `relations` array for the given table.

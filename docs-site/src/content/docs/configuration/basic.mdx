@@ -1,0 +1,124 @@
+---
+title: Basic Configuration
+description: Configure GORM Studio using the studio.Config struct to control URL prefix, read-only mode, SQL editor access, CORS, and authentication.
+---
+
+GORM Studio is configured through the `studio.Config` struct, passed as an optional argument to `studio.Mount`. If no config is provided, sensible defaults are applied.
+
+## Config Struct
+
+```go
+type Config struct {
+    Prefix           string          // URL prefix (default: "/studio")
+    ReadOnly         bool            // Disable write operations
+    DisableSQL       bool            // Disable raw SQL editor
+    CORSAllowOrigins []string        // Allowed CORS origins
+    AuthMiddleware   gin.HandlerFunc // Optional authentication middleware
+}
+```
+
+### Field Reference
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Prefix` | `string` | `"/studio"` | URL path prefix where the studio UI is served |
+| `ReadOnly` | `bool` | `false` | When `true`, disables all create, update, and delete operations |
+| `DisableSQL` | `bool` | `false` | When `true`, disables the raw SQL query editor |
+| `CORSAllowOrigins` | `[]string` | `nil` | List of allowed CORS origins. No CORS middleware is added if empty |
+| `AuthMiddleware` | `gin.HandlerFunc` | `nil` | Gin middleware for protecting studio routes |
+
+## DefaultConfig
+
+When you call `studio.Mount` without a config, or when fields are left at their zero values, the following defaults apply:
+
+```go
+func DefaultConfig() Config {
+    return Config{
+        Prefix:     "/studio",
+        ReadOnly:   false,
+        DisableSQL: false,
+    }
+}
+```
+
+## Examples
+
+### Minimal Setup
+
+The simplest way to use GORM Studio uses all defaults. The UI will be available at `/studio`.
+
+```go
+package main
+
+import (
+    "github.com/gin-gonic/gin"
+    studio "github.com/acaloiaro/gorm-studio"
+    "gorm.io/gorm"
+)
+
+func main() {
+    router := gin.Default()
+    db, _ := gorm.Open(/* ... */)
+
+    models := []any{&User{}, &Product{}, &Order{}}
+
+    // Minimal - uses defaults
+    studio.Mount(router, db, models)
+
+    router.Run(":8080")
+}
+```
+
+### Read-Only Mode
+
+Prevent any write operations through the studio interface. Users can browse and query data but cannot create, update, or delete records.
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    ReadOnly: true,
+})
+```
+
+### Custom URL Prefix
+
+Serve the studio UI under a custom path instead of the default `/studio`.
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    Prefix: "/admin/db",
+})
+```
+
+The UI will then be available at `/admin/db` instead of `/studio`.
+
+### Production Configuration
+
+A recommended configuration for production environments that combines authentication, read-only mode, and a disabled SQL editor.
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    Prefix:     "/admin/db",
+    ReadOnly:   true,
+    DisableSQL: true,
+    AuthMiddleware: gin.BasicAuth(gin.Accounts{
+        "admin": os.Getenv("STUDIO_PASSWORD"),
+    }),
+    CORSAllowOrigins: []string{"https://myapp.com"},
+})
+```
+
+### Combined Config Example
+
+You can set multiple fields at once to tailor behavior for different environments.
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    Prefix:     "/admin/db",
+    ReadOnly:   true,
+    DisableSQL: true,
+})
+```
+
+:::tip
+For local development, the zero-value config (all defaults) is usually sufficient. Reserve stricter settings like `ReadOnly` and `DisableSQL` for staging and production environments.
+:::

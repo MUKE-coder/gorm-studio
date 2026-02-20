@@ -1,0 +1,78 @@
+---
+title: "Schema Browser"
+description: "Explore your database schema with automatic introspection and GORM model reflection."
+---
+
+GORM Studio provides a powerful schema browser that gives you full visibility into your database structure. It uses **dual-source schema discovery**: it introspects the actual database AND parses GORM model structs via reflection. This means you get a complete picture of your schema, including relationships that only exist in your Go code.
+
+## How It Works
+
+The schema is cached at startup for fast access and can be refreshed at any time via the refresh button in the web UI or programmatically:
+
+```bash
+POST /api/schema/refresh
+```
+
+To retrieve the full schema:
+
+```bash
+GET /api/schema
+```
+
+This returns a `SchemaInfo` object containing every table, column, relationship, and row count.
+
+## Schema Data Structures
+
+The schema API returns data in the following structure:
+
+```go
+type SchemaInfo struct {
+    Tables []TableInfo
+    Driver string // "sqlite", "postgres", "mysql"
+}
+
+type TableInfo struct {
+    Name      string
+    Columns   []ColumnInfo
+    Relations []RelationInfo
+    RowCount  int64
+}
+
+type ColumnInfo struct {
+    Name         string
+    Type         string
+    IsPrimaryKey bool
+    IsNullable   bool
+    DefaultValue string
+    IsForeignKey bool
+    ForeignTable string
+    ForeignColumn string
+}
+```
+
+## What Gets Discovered
+
+For each table, GORM Studio discovers:
+
+- **Column names** and their database types
+- **Nullable** status for each column
+- **Primary keys**, including composite keys
+- **Default values** defined at the database level
+- **Indexes** for understanding query performance
+- **Foreign keys** linking tables together
+
+## Relationship Detection
+
+Relationships are detected from GORM struct tags, including:
+
+- `foreignKey` — specifies the foreign key column
+- `references` — specifies the referenced column
+- `many2many` — specifies the join table for many-to-many relationships
+
+## Web UI
+
+The web UI presents the schema in an intuitive layout:
+
+- A **table list** in the sidebar displays all tables along with their row counts
+- Click any table to see its **columns**, **types**, and **relationships**
+- Use the **refresh button** to re-introspect the database after schema changes

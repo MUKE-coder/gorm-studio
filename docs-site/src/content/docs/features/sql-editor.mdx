@@ -1,0 +1,88 @@
+---
+title: "SQL Editor"
+description: "Execute raw SQL queries with automatic safety checks and DDL blocking."
+---
+
+The SQL editor lets you execute raw SQL queries directly against your database. It includes automatic safety checks to prevent destructive operations, making it suitable for development and debugging workflows.
+
+## Executing Queries
+
+Send a POST request to the SQL endpoint:
+
+```bash
+curl -X POST http://localhost:8080/studio/api/sql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT * FROM users WHERE id > 10"}'
+```
+
+## Read vs Write Detection
+
+GORM Studio automatically detects whether a query is a read or write operation. The following are classified as **read queries**:
+
+- `SELECT`
+- `SHOW`
+- `DESCRIBE`
+- `EXPLAIN`
+- `PRAGMA`
+
+All other DML statements (`INSERT`, `UPDATE`, `DELETE`) are classified as **write queries**.
+
+### Read Query Response
+
+Read queries return column names and rows as JSON:
+
+```json
+{
+  "columns": ["id", "name", "email"],
+  "rows": [
+    {"id": 11, "name": "Alice", "email": "alice@example.com"}
+  ]
+}
+```
+
+### Write Query Response
+
+Write queries return the number of affected rows:
+
+```bash
+curl -X POST http://localhost:8080/studio/api/sql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "UPDATE users SET name = '\''Jane'\'' WHERE id = 1"}'
+```
+
+```json
+{
+  "affected_rows": 1
+}
+```
+
+## DDL Blocking
+
+For safety, the following DDL and administrative statements are **always blocked**, regardless of mode:
+
+- `DROP`
+- `ALTER`
+- `TRUNCATE`
+- `CREATE`
+- `ATTACH`
+- `DETACH`
+- `GRANT`
+- `REVOKE`
+
+Attempting to execute any of these will return an error. This prevents accidental schema changes or permission modifications through the studio interface.
+
+## Read-Only Mode
+
+When GORM Studio is configured with read-only mode, all write queries (`INSERT`, `UPDATE`, `DELETE`) are also blocked in addition to the DDL statements above. Only read queries are permitted.
+
+## Disabling the SQL Editor
+
+If you want to completely disable raw SQL execution, set the `DisableSQL` option in your configuration:
+
+```go
+studio.New(db, &studio.Config{
+    DisableSQL: true,
+})
+```
+
+When disabled, the SQL editor tab will not appear in the web UI and the `/api/sql` endpoint will return a `403 Forbidden` response.

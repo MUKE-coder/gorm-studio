@@ -1,0 +1,156 @@
+---
+title: Introduction to GORM Studio
+description: A Prisma Studio-like visual database browser and management tool for Go applications using GORM.
+---
+
+GORM Studio is a powerful, browser-based visual database management tool designed specifically for Go developers who use [GORM](https://gorm.io) as their ORM. If you have ever used Prisma Studio in the JavaScript ecosystem, GORM Studio brings that same intuitive experience to the Go world — allowing you to visually browse, query, and manage your database without leaving your development workflow.
+
+## Why GORM Studio?
+
+Working with databases during development often means switching between your editor, a terminal running raw SQL, and a separate database GUI. GORM Studio eliminates that friction by embedding a fully featured database browser directly into your Go application. It mounts as a route group on your existing Gin router, so there is nothing extra to deploy or configure.
+
+## Features
+
+### Schema Discovery
+
+GORM Studio automatically introspects your database schema and combines it with GORM model reflection to build a complete picture of your data layer. Table names, column types, constraints, indexes, and relationships are all discovered and displayed without any manual configuration.
+
+```go
+// GORM Studio reads your model tags to understand the schema
+type Product struct {
+    ID          uint    `gorm:"primarykey"`
+    Name        string  `gorm:"size:255;not null"`
+    Price       float64 `gorm:"type:decimal(10,2)"`
+    Description string  `gorm:"type:text"`
+    CategoryID  uint    `gorm:"index"`
+    Category    Category
+    CreatedAt   time.Time
+    UpdatedAt   time.Time
+}
+```
+
+When you register this model, GORM Studio will display every column, its type, whether it is nullable, its default value, and any indexes — all in a clean, browsable interface.
+
+### Browse and Filter
+
+View your data in a paginated, sortable, and searchable table. Click any column header to sort ascending or descending. Use the search bar to filter rows across all text columns, or apply column-specific filters for precise queries.
+
+- **Pagination** — Navigate large tables without loading everything into memory.
+- **Sorting** — Click column headers to toggle sort direction.
+- **Search** — Full-text search across string columns.
+- **Column Filters** — Apply conditions like equals, contains, greater than, and more on individual columns.
+
+### CRUD Operations
+
+Create, read, update, and delete records through auto-generated forms. GORM Studio inspects your model's field types and GORM tags to render the appropriate input controls — text fields, number inputs, date pickers, dropdowns for enums, and toggles for booleans.
+
+```go
+// Enum-like fields get rendered as dropdowns
+type Order struct {
+    ID     uint   `gorm:"primarykey"`
+    Status string `gorm:"type:varchar(20);default:'pending'"`
+    Total  float64
+    UserID uint
+    User   User
+}
+```
+
+### Relationship Navigation
+
+GORM Studio understands all four GORM relationship types and lets you navigate between related records seamlessly:
+
+| Relationship    | Example                          |
+| --------------- | -------------------------------- |
+| `has_one`       | User has one Profile             |
+| `has_many`      | User has many Posts              |
+| `belongs_to`    | Post belongs to User             |
+| `many_to_many`  | Post has many Tags via join table|
+
+Click on a related record to jump directly to it in the browser. Foreign key links are rendered as clickable references, making it easy to follow data relationships visually.
+
+```go
+type User struct {
+    ID      uint      `gorm:"primarykey"`
+    Name    string    `gorm:"size:100"`
+    Profile Profile   // has one
+    Posts   []Post    // has many
+}
+
+type Post struct {
+    ID     uint   `gorm:"primarykey"`
+    Title  string `gorm:"size:255"`
+    UserID uint   // belongs to
+    User   User
+    Tags   []Tag  `gorm:"many2many:post_tags;"` // many to many
+}
+
+type Tag struct {
+    ID    uint   `gorm:"primarykey"`
+    Name  string `gorm:"size:50;uniqueIndex"`
+    Posts []Post `gorm:"many2many:post_tags;"`
+}
+```
+
+### Raw SQL Editor
+
+For advanced queries that go beyond simple CRUD, GORM Studio includes a built-in SQL editor with syntax highlighting, auto-completion, and safety checks. The editor warns you before executing destructive statements like `DROP`, `TRUNCATE`, or `DELETE` without a `WHERE` clause, helping prevent accidental data loss.
+
+- Syntax highlighting for SQL.
+- Auto-completion for table and column names.
+- Safety confirmation prompts for destructive operations.
+- Results displayed in the same sortable, paginated table view.
+
+### Schema Export
+
+Export your database schema in multiple formats for documentation, collaboration, or migration workflows:
+
+| Format       | Description                                      |
+| ------------ | ------------------------------------------------ |
+| **SQL**      | Standard DDL statements for recreating the schema |
+| **JSON**     | Machine-readable schema representation            |
+| **YAML**     | Human-readable schema representation              |
+| **DBML**     | Database Markup Language for dbdiagram.io          |
+| **PNG ERD**  | Entity-Relationship Diagram as a PNG image        |
+| **PDF ERD**  | Entity-Relationship Diagram as a PDF document     |
+
+### Data Import and Export
+
+Move data in and out of your database with support for common file formats:
+
+- **JSON** — Import and export records as JSON arrays.
+- **CSV** — Spreadsheet-compatible comma-separated values.
+- **SQL** — INSERT statements for migrating data between databases.
+- **Excel** — `.xlsx` files for sharing data with non-technical stakeholders.
+
+### Go Code Generation
+
+GORM Studio can generate Go struct definitions from your existing database schema. This is especially useful when working with a database-first workflow or when onboarding onto a project with an existing database. The generated code includes proper GORM tags, field types, and relationship definitions.
+
+```go
+// Example of generated code from a "products" table
+type Product struct {
+    ID          uint      `gorm:"column:id;primarykey;autoIncrement"`
+    Name        string    `gorm:"column:name;type:varchar(255);not null"`
+    Price       float64   `gorm:"column:price;type:decimal(10,2)"`
+    Description string    `gorm:"column:description;type:text"`
+    CategoryID  uint      `gorm:"column:category_id;index"`
+    CreatedAt   time.Time `gorm:"column:created_at"`
+    UpdatedAt   time.Time `gorm:"column:updated_at"`
+}
+```
+
+## Supported Databases
+
+GORM Studio works with the three most popular databases in the Go ecosystem:
+
+| Database       | Driver Package                    | Notes                              |
+| -------------- | --------------------------------- | ---------------------------------- |
+| **SQLite**     | `github.com/glebarez/sqlite`      | Great for development and testing  |
+| **PostgreSQL** | `gorm.io/driver/postgres`         | Recommended for production         |
+| **MySQL**      | `gorm.io/driver/mysql`            | Full support including MariaDB     |
+
+All features — schema discovery, CRUD, relationship navigation, SQL editor, import/export, and code generation — work consistently across all three database backends.
+
+## Next Steps
+
+Ready to get started? Head to the [Installation](/getting-started/installation) guide to add GORM Studio to your project, then follow the [Quick Start](/getting-started/quick-start) to have it running in under five minutes.

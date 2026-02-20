@@ -1,0 +1,91 @@
+---
+title: "Export API"
+description: "API endpoints for exporting schemas, data, and Go models."
+---
+
+## GET /studio/api/export/schema
+
+Export the full database schema in various formats.
+
+**Query Parameters:**
+
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| format | sql, json, yaml, dbml, png, pdf | Export format |
+
+```bash
+# SQL DDL
+curl http://localhost:8080/studio/api/export/schema?format=sql
+
+# ERD as PNG image
+curl http://localhost:8080/studio/api/export/schema?format=png -o erd.png
+
+# DBML for dbdiagram.io
+curl http://localhost:8080/studio/api/export/schema?format=dbml
+```
+
+- **sql** - Standard SQL DDL statements (`CREATE TABLE ...`).
+- **json** - JSON representation of the schema.
+- **yaml** - YAML representation of the schema.
+- **dbml** - [DBML](https://dbml.dbdiagram.io/) format, compatible with dbdiagram.io.
+- **png** - Entity-relationship diagram rendered as a PNG image.
+- **pdf** - Entity-relationship diagram rendered as a PDF document.
+
+---
+
+## GET /studio/api/export/data
+
+Export all database data.
+
+**Query Parameters:**
+
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| format | json, csv, sql | Export format |
+
+- **json** - Single JSON document with all tables.
+- **csv** - ZIP archive with one CSV file per table.
+- **sql** - INSERT statements for all rows.
+
+```bash
+# JSON export
+curl http://localhost:8080/studio/api/export/data?format=json -o data.json
+
+# CSV export (ZIP archive)
+curl http://localhost:8080/studio/api/export/data?format=csv -o data.zip
+
+# SQL INSERT statements
+curl http://localhost:8080/studio/api/export/data?format=sql -o data.sql
+```
+
+---
+
+## GET /studio/api/export/models
+
+Download generated Go struct definitions as a `.go` file.
+
+```bash
+curl http://localhost:8080/studio/api/export/models -o models.go
+```
+
+The generated file contains Go struct definitions with GORM tags that match your current database schema.
+
+---
+
+## GET /studio/api/tables/:table/export
+
+Export a single table's data.
+
+**Query Parameters:**
+
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| format | json, csv | Export format (default: json) |
+
+```bash
+# Export users table as JSON
+curl http://localhost:8080/studio/api/tables/users/export?format=json -o users.json
+
+# Export users table as CSV
+curl http://localhost:8080/studio/api/tables/users/export?format=csv -o users.csv
+```

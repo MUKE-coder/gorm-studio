@@ -1,0 +1,47 @@
+---
+title: "Stats API"
+description: "API endpoint for database connection pool statistics."
+---
+
+## GET /studio/api/stats
+
+Returns database connection pool statistics from Go's `sql.DBStats`.
+
+**Response:**
+
+```json
+{
+  "max_open_connections": 0,
+  "open_connections": 1,
+  "in_use": 0,
+  "idle": 1,
+  "wait_count": 0,
+  "wait_duration": "0s",
+  "max_idle_closed": 0,
+  "max_idle_time_closed": 0,
+  "max_lifetime_closed": 0
+}
+```
+
+**Fields:**
+
+| Field | Description |
+|-------|-------------|
+| max_open_connections | Maximum number of open connections (0 = unlimited) |
+| open_connections | Total open connections (in-use + idle) |
+| in_use | Connections currently in use |
+| idle | Connections waiting to be used |
+| wait_count | Total number of connections waited for |
+| wait_duration | Total time blocked waiting for a new connection |
+| max_idle_closed | Connections closed due to max idle limit |
+| max_idle_time_closed | Connections closed due to idle timeout |
+| max_lifetime_closed | Connections closed due to max lifetime |
+
+This endpoint is useful for monitoring your application's database connection health. Use it to detect connection leaks, pool exhaustion, or configuration issues.
+
+### Interpreting the Statistics
+
+- **High `wait_count` or `wait_duration`** indicates your connection pool is too small for the workload. Consider increasing `MaxOpenConnections`.
+- **`open_connections` steadily increasing** without a corresponding decrease may indicate a connection leak.
+- **`max_idle_closed` growing rapidly** suggests your `MaxIdleConnections` setting is too low relative to traffic patterns.
+- **`max_lifetime_closed` incrementing** is normal behavior when `ConnMaxLifetime` is configured, as connections are recycled after their maximum lifetime.

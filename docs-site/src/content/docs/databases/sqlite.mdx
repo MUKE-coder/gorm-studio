@@ -1,0 +1,63 @@
+---
+title: "SQLite"
+description: "Using GORM Studio with SQLite databases."
+---
+
+## SQLite Driver
+
+GORM Studio works with SQLite using a pure-Go driver — no CGO required.
+
+Install the pure-Go SQLite driver:
+
+```bash
+go get github.com/glebarez/sqlite
+```
+
+## Full Example
+
+```go
+package main
+
+import (
+    "log"
+    "github.com/MUKE-coder/gorm-studio/studio"
+    "github.com/gin-gonic/gin"
+    "github.com/glebarez/sqlite"
+    "gorm.io/gorm"
+)
+
+type Product struct {
+    ID    uint    `gorm:"primarykey"`
+    Name  string  `gorm:"size:200"`
+    Price float64
+    Stock int
+}
+
+func main() {
+    db, err := gorm.Open(sqlite.Open("shop.db"), &gorm.Config{})
+    if err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+    db.AutoMigrate(&Product{})
+
+    r := gin.Default()
+    studio.Mount(r, db, []interface{}{&Product{}})
+    r.Run(":8080")
+}
+```
+
+## Introspection
+
+SQLite introspection uses `PRAGMA table_info()` and `PRAGMA foreign_key_list()` to discover columns and relationships.
+
+## In-Memory Databases
+
+For testing, you can use an in-memory database by passing `":memory:"` as the database path:
+
+```go
+db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+```
+
+## Important Note
+
+GORM Studio uses `github.com/glebarez/sqlite` (pure Go), **not** `gorm.io/driver/sqlite` (which requires CGO). The pure-Go driver works out of the box on all platforms without a C compiler.

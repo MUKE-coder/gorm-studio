@@ -1,0 +1,93 @@
+---
+title: "Schema Import"
+description: "Import database schemas from SQL, JSON, YAML, or DBML files."
+---
+
+- **Endpoint:** `POST /studio/api/import/schema` (multipart file upload)
+- Only available when ReadOnly is false (import routes are not registered in ReadOnly mode)
+- **Supported file extensions:** `.sql`, `.json`, `.yaml`/`.yml`, `.dbml`
+- On success, returns the list of created tables AND generated Go model code
+
+## SQL Import
+
+Upload a `.sql` file containing CREATE TABLE statements. The parser supports SQLite, PostgreSQL, and MySQL dialects with automatic dialect detection.
+
+```sql
+CREATE TABLE categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(100) NOT NULL,
+  parent_id INTEGER REFERENCES categories(id)
+);
+
+CREATE TABLE products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(200) NOT NULL,
+  price DECIMAL(10,2),
+  category_id INTEGER REFERENCES categories(id)
+);
+```
+
+Usage with curl:
+
+```bash
+curl -X POST http://localhost:8080/studio/api/import/schema \
+  -F "file=@schema.sql"
+```
+
+## JSON Import
+
+Upload a `.json` file with table definitions:
+
+```json
+[
+  {
+    "name": "categories",
+    "columns": [
+      {"name": "id", "type": "INTEGER", "is_primary_key": true},
+      {"name": "name", "type": "VARCHAR(100)", "is_nullable": false}
+    ]
+  }
+]
+```
+
+## YAML Import
+
+Same structure as JSON but in YAML format:
+
+```yaml
+- name: categories
+  columns:
+    - name: id
+      type: INTEGER
+      is_primary_key: true
+    - name: name
+      type: VARCHAR(100)
+      is_nullable: false
+```
+
+## DBML Import
+
+Upload a `.dbml` file:
+
+```dbml
+Table categories {
+  id integer [pk, increment]
+  name varchar(100) [not null]
+}
+
+Table products {
+  id integer [pk, increment]
+  name varchar(200) [not null]
+  price decimal(10,2)
+  category_id integer [ref: > categories.id]
+}
+```
+
+## Response
+
+```json
+{
+  "tables_created": ["categories", "products"],
+  "go_code": "package models\n\ntype Category struct {\n  ID   uint   `gorm:\"column:id;primaryKey\"`\n  Name string `gorm:\"column:name;size:100;not null\"`\n}\n..."
+}
+```

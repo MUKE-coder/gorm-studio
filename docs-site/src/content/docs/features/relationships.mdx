@@ -1,0 +1,82 @@
+---
+title: "Relationships"
+description: "Navigate foreign key relationships between tables."
+---
+
+GORM Studio detects and exposes relationships between your tables, making it easy to navigate related data through both the web UI and the API.
+
+## Supported Relationship Types
+
+GORM Studio supports all four GORM relationship types:
+
+- **belongs_to** — the model contains a foreign key pointing to another table
+- **has_one** — another table has a foreign key pointing back to this model
+- **has_many** — another table has multiple rows referencing this model
+- **many_to_many** — a join table connects two models
+
+## Defining Relationships in GORM Models
+
+Relationships are detected from GORM struct tags on your Go models:
+
+```go
+type User struct {
+    ID       uint      `gorm:"primarykey"`
+    Name     string    `gorm:"size:100"`
+    Posts    []Post    `gorm:"foreignKey:UserID"`
+    Profile  Profile   `gorm:"foreignKey:UserID"`
+}
+
+type Post struct {
+    ID     uint   `gorm:"primarykey"`
+    Title  string `gorm:"size:255"`
+    UserID uint
+    Tags   []Tag  `gorm:"many2many:post_tags"`
+}
+
+type Profile struct {
+    ID     uint   `gorm:"primarykey"`
+    Bio    string
+    UserID uint
+}
+
+type Tag struct {
+    ID   uint   `gorm:"primarykey"`
+    Name string `gorm:"size:50"`
+}
+```
+
+In this example:
+
+- **User has_many Posts** — a user can have multiple posts, linked via the `UserID` foreign key on the `Post` model.
+- **User has_one Profile** — each user has a single profile, linked via the `UserID` foreign key on the `Profile` model.
+- **Post belongs_to User** — each post references its author through the `UserID` column.
+- **Post many_to_many Tags** — posts and tags are linked through a `post_tags` join table, allowing each post to have multiple tags and each tag to apply to multiple posts.
+
+## Viewing Relationships in the Schema Browser
+
+When you select a table in the schema browser, all detected relationships are displayed alongside the column list. Each relationship shows:
+
+- The relationship type (has_one, has_many, belongs_to, many_to_many)
+- The related table name
+- The foreign key or join table used
+
+## Navigating Related Data
+
+From any record detail view, you can navigate to related records. Click a relationship to see all associated rows in the related table.
+
+### API Access
+
+Fetch related records for a specific row using the relations endpoint:
+
+```bash
+# Get all posts for user with ID 1
+GET /api/tables/users/rows/1/relations/Posts
+
+# Get the profile for user with ID 1
+GET /api/tables/users/rows/1/relations/Profile
+
+# Get all tags for post with ID 5
+GET /api/tables/posts/rows/5/relations/Tags
+```
+
+The relation name in the URL corresponds to the Go struct field name (e.g., `Posts`, `Profile`, `Tags`).

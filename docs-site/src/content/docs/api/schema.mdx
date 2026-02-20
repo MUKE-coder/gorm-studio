@@ -1,0 +1,97 @@
+---
+title: "Schema API"
+description: "API endpoints for schema introspection and configuration."
+---
+
+## GET /studio/api/schema
+
+Returns the full database schema including all tables, columns, relationships, and row counts.
+
+**Response:**
+
+```json
+{
+  "tables": [
+    {
+      "name": "users",
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "is_primary_key": true,
+          "is_nullable": false,
+          "default_value": "",
+          "is_foreign_key": false
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(100)",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "default_value": "",
+          "is_foreign_key": false
+        }
+      ],
+      "relations": [
+        {
+          "name": "Posts",
+          "type": "has_many",
+          "table": "posts",
+          "foreign_key": "user_id",
+          "reference_key": "id"
+        }
+      ],
+      "row_count": 42
+    }
+  ],
+  "driver": "sqlite"
+}
+```
+
+Each table entry includes:
+
+- **name** - The table name in the database.
+- **columns** - Array of column definitions with type info, primary key status, nullability, default values, and foreign key status.
+- **relations** - Array of relationships (has_one, has_many, belongs_to, many_to_many) detected from GORM model definitions.
+- **row_count** - Current number of rows in the table.
+
+The top-level **driver** field indicates the database driver in use (e.g., `sqlite`, `postgres`, `mysql`, `sqlserver`).
+
+---
+
+## POST /studio/api/schema/refresh
+
+Re-introspects the database schema. Useful after manually creating tables or modifying the schema outside of GORM Studio.
+
+**Response:**
+
+```json
+{
+  "tables": [...],
+  "driver": "sqlite"
+}
+```
+
+The response format is identical to `GET /studio/api/schema`. This endpoint forces a fresh introspection of the database, bypassing any cached schema information.
+
+---
+
+## GET /studio/api/config
+
+Returns the current studio configuration.
+
+**Response:**
+
+```json
+{
+  "read_only": false,
+  "disable_sql": false,
+  "prefix": "/studio"
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| read_only | Whether the studio is in read-only mode (write operations disabled) |
+| disable_sql | Whether the raw SQL endpoint is disabled |
+| prefix | The URL prefix where GORM Studio is mounted |

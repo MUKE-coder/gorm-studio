@@ -1,0 +1,192 @@
+---
+title: Installation
+description: Install GORM Studio and its dependencies into your Go project.
+---
+
+This guide walks you through installing GORM Studio and all required dependencies. The entire setup takes just a few commands.
+
+## Prerequisites
+
+Before installing GORM Studio, make sure you have:
+
+- **Go 1.21 or later** — GORM Studio uses generics and other modern Go features that require Go 1.21+. Check your version with:
+
+```bash
+go version
+```
+
+- **An initialized Go module** — If you do not already have a `go.mod` file, create one:
+
+```bash
+go mod init your-module-name
+```
+
+## Install GORM Studio
+
+Install the GORM Studio package using `go get`:
+
+```bash
+go get github.com/MUKE-coder/gorm-studio/studio
+```
+
+This pulls in the studio package, which contains the route handlers, the embedded frontend assets, and all the logic for schema introspection, CRUD operations, and data import/export.
+
+## Install Required Dependencies
+
+GORM Studio is built on top of [Gin](https://gin-gonic.com) (HTTP router) and [GORM](https://gorm.io) (ORM). You need both of these in your project:
+
+```bash
+go get github.com/gin-gonic/gin
+go get gorm.io/gorm
+```
+
+## Install a Database Driver
+
+You need at least one database driver. Install the one that matches your database:
+
+### SQLite
+
+SQLite is the easiest option for local development and testing. It requires no external database server — everything is stored in a single file.
+
+```bash
+go get github.com/glebarez/sqlite
+```
+
+Usage in code:
+
+```go
+import "github.com/glebarez/sqlite"
+
+db, err := gorm.Open(sqlite.Open("app.db"), &gorm.Config{})
+```
+
+:::tip
+SQLite is a great choice for getting started quickly. You can always switch to PostgreSQL or MySQL later without changing your GORM models.
+:::
+
+### PostgreSQL
+
+PostgreSQL is the recommended choice for production deployments. It offers advanced features like JSONB columns, full-text search, and robust concurrent access.
+
+```bash
+go get gorm.io/driver/postgres
+```
+
+Usage in code:
+
+```go
+import "gorm.io/driver/postgres"
+
+dsn := "host=localhost user=postgres password=secret dbname=myapp port=5432 sslmode=disable"
+db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+```
+
+### MySQL
+
+MySQL (and MariaDB) are fully supported. Use this driver if your infrastructure is built around MySQL.
+
+```bash
+go get gorm.io/driver/mysql
+```
+
+Usage in code:
+
+```go
+import "gorm.io/driver/mysql"
+
+dsn := "user:password@tcp(127.0.0.1:3306)/myapp?charset=utf8mb4&parseTime=True&loc=Local"
+db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+```
+
+## All-in-One Installation
+
+If you want to install everything at once, run all commands together:
+
+```bash
+# Core dependencies
+go get github.com/MUKE-coder/gorm-studio/studio
+go get github.com/gin-gonic/gin
+go get gorm.io/gorm
+
+# Pick your database driver (install one or more)
+go get github.com/glebarez/sqlite       # SQLite
+go get gorm.io/driver/postgres           # PostgreSQL
+go get gorm.io/driver/mysql              # MySQL
+```
+
+After running these commands, tidy up your module to remove any unused indirect dependencies:
+
+```bash
+go mod tidy
+```
+
+## Verify the Installation
+
+Create a minimal Go file to confirm everything compiles correctly:
+
+```go
+package main
+
+import (
+    "fmt"
+
+    _ "github.com/MUKE-coder/gorm-studio/studio"
+    _ "github.com/gin-gonic/gin"
+    _ "gorm.io/gorm"
+    _ "github.com/glebarez/sqlite"
+)
+
+func main() {
+    fmt.Println("All dependencies installed successfully!")
+}
+```
+
+Run it:
+
+```bash
+go run main.go
+```
+
+If you see `All dependencies installed successfully!` with no compilation errors, you are ready to proceed.
+
+## Project Structure
+
+A typical project using GORM Studio looks like this:
+
+```
+myapp/
+├── go.mod
+├── go.sum
+├── main.go          # Application entry point, mounts GORM Studio
+├── models/
+│   ├── user.go      # GORM model definitions
+│   ├── post.go
+│   └── category.go
+└── app.db           # SQLite database file (if using SQLite)
+```
+
+GORM Studio does not impose any specific project layout. It only needs a `*gorm.DB` connection and a `*gin.Engine` router to work.
+
+## Troubleshooting
+
+### "go: module not found" errors
+
+Make sure you are running `go get` from within a directory that has a `go.mod` file. If you have not initialized your module yet, run `go mod init your-module-name` first.
+
+### CGO errors with SQLite
+
+The `github.com/glebarez/sqlite` driver is a pure-Go implementation that does **not** require CGO. If you are using a different SQLite driver like `gorm.io/driver/sqlite` (which wraps mattn/go-sqlite3), you will need a C compiler installed. We recommend using the pure-Go driver listed above to avoid this issue entirely.
+
+### Version conflicts
+
+If you encounter dependency version conflicts, run:
+
+```bash
+go mod tidy
+```
+
+This resolves version requirements and removes unused dependencies. If conflicts persist, check that your `go.mod` specifies `go 1.21` or later in the `go` directive.
+
+## Next Steps
+
+With everything installed, head to the [Quick Start](/getting-started/quick-start) guide to mount GORM Studio in your application and start browsing your data.

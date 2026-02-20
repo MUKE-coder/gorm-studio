@@ -1,0 +1,60 @@
+---
+title: "Soft Deletes"
+description: "Support for GORM soft deletes with deleted_at column filtering."
+---
+
+GORM Studio has built-in support for GORM's soft delete mechanism. Tables that use `gorm.DeletedAt` are automatically detected, and soft-deleted rows are handled appropriately in both the web UI and the API.
+
+## How It Works
+
+GORM Studio automatically detects if a table has a `deleted_at` column during schema introspection. When this column is present, the following behavior applies:
+
+- **By default**, soft-deleted rows (where `deleted_at` is not NULL) are hidden from query results
+- You can **opt in** to viewing soft-deleted rows using the `show_deleted` query parameter
+
+## Defining Soft Deletes in Your Model
+
+Use GORM's `gorm.DeletedAt` type on your model to enable soft deletes:
+
+```go
+import "gorm.io/gorm"
+
+type User struct {
+    ID        uint           `gorm:"primarykey"`
+    Name      string         `gorm:"size:100"`
+    Email     string         `gorm:"size:200"`
+    DeletedAt gorm.DeletedAt `gorm:"index"`
+}
+```
+
+When a record is deleted through GORM (or through GORM Studio), the `deleted_at` column is set to the current timestamp instead of removing the row from the database.
+
+## Querying with Soft Deletes
+
+### Default Behavior — Hide Soft-Deleted Rows
+
+By default, soft-deleted rows are excluded from results:
+
+```
+GET /studio/api/tables/users/rows
+```
+
+This only returns rows where `deleted_at` is NULL, matching GORM's default behavior.
+
+### Including Soft-Deleted Rows
+
+To include soft-deleted rows in the results, add the `show_deleted=true` query parameter:
+
+```
+GET /studio/api/tables/users/rows?show_deleted=true
+```
+
+This returns all rows regardless of their `deleted_at` value, equivalent to GORM's `Unscoped()` method.
+
+## Web UI
+
+In the web UI, a toggle is available on tables that support soft deletes. When enabled, soft-deleted rows are displayed alongside active rows, typically with a visual indicator to distinguish them.
+
+## Detection Details
+
+The detection is straightforward: GORM Studio checks for the presence of a `deleted_at` column in the table schema. If the column exists, soft delete support is enabled for that table. This works automatically with no additional configuration required.

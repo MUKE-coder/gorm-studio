@@ -1,0 +1,58 @@
+---
+title: "MySQL"
+description: "Using GORM Studio with MySQL databases."
+---
+
+## MySQL Driver
+
+Install the GORM MySQL driver:
+
+```bash
+go get gorm.io/driver/mysql
+```
+
+## Full Example
+
+```go
+package main
+
+import (
+    "log"
+    "github.com/MUKE-coder/gorm-studio/studio"
+    "github.com/gin-gonic/gin"
+    "gorm.io/driver/mysql"
+    "gorm.io/gorm"
+)
+
+type Article struct {
+    ID      uint   `gorm:"primarykey"`
+    Title   string `gorm:"size:255"`
+    Content string `gorm:"type:text"`
+    Author  string `gorm:"size:100"`
+}
+
+func main() {
+    dsn := "user:password@tcp(127.0.0.1:3306)/mydb?charset=utf8mb4&parseTime=True&loc=Local"
+    db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+    if err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+    db.AutoMigrate(&Article{})
+
+    r := gin.Default()
+    studio.Mount(r, db, []interface{}{&Article{}})
+    r.Run(":8080")
+}
+```
+
+## DSN Format
+
+The MySQL DSN follows this format:
+
+```
+user:password@tcp(host:port)/dbname?charset=utf8mb4&parseTime=True&loc=Local
+```
+
+## Introspection
+
+MySQL introspection uses `information_schema.tables` and `information_schema.columns` with the `DATABASE()` function to discover your database structure. Identifiers are quoted with backticks.

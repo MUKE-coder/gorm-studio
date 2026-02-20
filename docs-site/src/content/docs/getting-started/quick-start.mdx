@@ -1,0 +1,349 @@
+---
+title: Quick Start
+description: Get GORM Studio running in your Go application in under five minutes with this step-by-step guide.
+---
+
+This guide takes you from zero to a running GORM Studio instance in under five minutes. By the end, you will have a Go application with a visual database browser accessible in your web browser.
+
+## Minimal Example
+
+Here is the simplest possible setup using SQLite. Create a file called `main.go`:
+
+```go
+package main
+
+import (
+    "log"
+
+    "github.com/MUKE-coder/gorm-studio/studio"
+    "github.com/gin-gonic/gin"
+    "github.com/glebarez/sqlite"
+    "gorm.io/gorm"
+)
+
+type User struct {
+    ID    uint   `gorm:"primarykey"`
+    Name  string `gorm:"size:100"`
+    Email string `gorm:"size:200;uniqueIndex"`
+}
+
+func main() {
+    // Connect to SQLite database
+    db, err := gorm.Open(sqlite.Open("app.db"), &gorm.Config{})
+    if err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Auto-migrate your models
+    db.AutoMigrate(&User{})
+
+    // Create a Gin router
+    r := gin.Default()
+
+    // Mount GORM Studio
+    studio.Mount(r, db, []interface{}{&User{}})
+
+    // Start the server
+    r.Run(":8080")
+}
+```
+
+Run the application:
+
+```bash
+go run main.go
+```
+
+Open your browser and navigate to **[http://localhost:8080/studio](http://localhost:8080/studio)**. You should see the GORM Studio interface with your `User` table listed in the sidebar.
+
+## What Just Happened?
+
+Let's break down each part of the example:
+
+### 1. Database Connection
+
+```go
+db, err := gorm.Open(sqlite.Open("app.db"), &gorm.Config{})
+```
+
+This opens (or creates) a SQLite database file called `app.db` in the current directory. GORM Studio works with the same `*gorm.DB` instance your application uses — there is no separate connection or configuration needed.
+
+### 2. Model Definition and Migration
+
+```go
+type User struct {
+    ID    uint   `gorm:"primarykey"`
+    Name  string `gorm:"size:100"`
+    Email string `gorm:"size:200;uniqueIndex"`
+}
+
+db.AutoMigrate(&User{})
+```
+
+The `User` struct defines your table schema using standard GORM tags. `AutoMigrate` creates the table if it does not exist and updates it to match the struct definition. GORM Studio reads these same tags to understand your schema.
+
+### 3. Mounting GORM Studio
+
+```go
+studio.Mount(r, db, []interface{}{&User{}})
+```
+
+This single line does all the heavy lifting. It:
+
+- Registers route handlers on the Gin router under the `/studio` path.
+- Passes your database connection so Studio can query and modify data.
+- Accepts a slice of model instances so Studio knows which tables to display and how to interpret relationships.
+
+## A More Complete Example
+
+Real applications have multiple models with relationships. Here is a more realistic setup:
+
+```go
+package main
+
+import (
+    "log"
+    "time"
+
+    "github.com/MUKE-coder/gorm-studio/studio"
+    "github.com/gin-gonic/gin"
+    "github.com/glebarez/sqlite"
+    "gorm.io/gorm"
+)
+
+// Models
+
+type User struct {
+    ID        uint      `gorm:"primarykey"`
+    Name      string    `gorm:"size:100;not null"`
+    Email     string    `gorm:"size:200;uniqueIndex;not null"`
+    Posts     []Post    `gorm:"foreignKey:AuthorID"`
+    Profile   Profile
+    CreatedAt time.Time
+    UpdatedAt time.Time
+}
+
+type Profile struct {
+    ID     uint   `gorm:"primarykey"`
+    Bio    string `gorm:"type:text"`
+    Avatar string `gorm:"size:500"`
+    UserID uint   `gorm:"uniqueIndex"`
+}
+
+type Post struct {
+    ID        uint      `gorm:"primarykey"`
+    Title     string    `gorm:"size:255;not null"`
+    Body      string    `gorm:"type:text"`
+    Published bool      `gorm:"default:false"`
+    AuthorID  uint      `gorm:"index"`
+    Author    User      `gorm:"foreignKey:AuthorID"`
+    Tags      []Tag     `gorm:"many2many:post_tags;"`
+    CreatedAt time.Time
+    UpdatedAt time.Time
+}
+
+type Tag struct {
+    ID    uint   `gorm:"primarykey"`
+    Name  string `gorm:"size:50;uniqueIndex;not null"`
+    Posts []Post `gorm:"many2many:post_tags;"`
+}
+
+func main() {
+    // Connect to database
+    db, err := gorm.Open(sqlite.Open("blog.db"), &gorm.Config{})
+    if err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    // Migrate all models
+    db.AutoMigrate(&User{}, &Profile{}, &Post{}, &Tag{})
+
+    // Seed some sample data
+    seedData(db)
+
+    // Setup router
+    r := gin.Default()
+
+    // Mount GORM Studio with all models
+    studio.Mount(r, db, []interface{}{
+        &User{},
+        &Profile{},
+        &Post{},
+        &Tag{},
+    })
+
+    log.Println("GORM Studio is running at http://localhost:8080/studio")
+    r.Run(":8080")
+}
+
+func seedData(db *gorm.DB) {
+    // Only seed if the users table is empty
+    var count int64
+    db.Model(&User{}).Count(&count)
+    if count > 0 {
+        return
+    }
+
+    users := []User{
+        {
+            Name:  "Alice",
+            Email: "alice@example.com",
+            Profile: Profile{
+                Bio:    "Go developer and open source enthusiast",
+                Avatar: "https://example.com/avatars/alice.jpg",
+            },
+        },
+        {
+            Name:  "Bob",
+            Email: "bob@example.com",
+            Profile: Profile{
+                Bio:    "Backend engineer who loves databases",
+                Avatar: "https://example.com/avatars/bob.jpg",
+            },
+        },
+    }
+
+    db.Create(&users)
+
+    tags := []Tag{
+        {Name: "go"},
+        {Name: "gorm"},
+        {Name: "tutorial"},
+    }
+    db.Create(&tags)
+
+    posts := []Post{
+        {
+            Title:    "Getting Started with GORM",
+            Body:     "GORM is a fantastic ORM for Go...",
+            Published: true,
+            AuthorID: users[0].ID,
+            Tags:     []Tag{tags[0], tags[1], tags[2]},
+        },
+        {
+            Title:    "Advanced GORM Queries",
+            Body:     "Let's explore some advanced query patterns...",
+            Published: false,
+            AuthorID: users[1].ID,
+            Tags:     []Tag{tags[0], tags[1]},
+        },
+    }
+    db.Create(&posts)
+}
+```
+
+When you run this example and open GORM Studio, you will see all four tables in the sidebar. Clicking on a `User` record will show their related `Profile`, `Posts`, and you can navigate to related `Tags` through the many-to-many relationship.
+
+## Using PostgreSQL Instead
+
+Switching to PostgreSQL requires only changing the import and connection string:
+
+```go
+package main
+
+import (
+    "log"
+
+    "github.com/MUKE-coder/gorm-studio/studio"
+    "github.com/gin-gonic/gin"
+    "gorm.io/driver/postgres"
+    "gorm.io/gorm"
+)
+
+type User struct {
+    ID    uint   `gorm:"primarykey"`
+    Name  string `gorm:"size:100"`
+    Email string `gorm:"size:200;uniqueIndex"`
+}
+
+func main() {
+    dsn := "host=localhost user=postgres password=secret dbname=myapp port=5432 sslmode=disable"
+    db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+    if err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    db.AutoMigrate(&User{})
+
+    r := gin.Default()
+    studio.Mount(r, db, []interface{}{&User{}})
+    r.Run(":8080")
+}
+```
+
+## Using MySQL Instead
+
+Similarly, for MySQL:
+
+```go
+package main
+
+import (
+    "log"
+
+    "github.com/MUKE-coder/gorm-studio/studio"
+    "github.com/gin-gonic/gin"
+    "gorm.io/driver/mysql"
+    "gorm.io/gorm"
+)
+
+type User struct {
+    ID    uint   `gorm:"primarykey"`
+    Name  string `gorm:"size:100"`
+    Email string `gorm:"size:200;uniqueIndex"`
+}
+
+func main() {
+    dsn := "user:password@tcp(127.0.0.1:3306)/myapp?charset=utf8mb4&parseTime=True&loc=Local"
+    db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+    if err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+
+    db.AutoMigrate(&User{})
+
+    r := gin.Default()
+    studio.Mount(r, db, []interface{}{&User{}})
+    r.Run(":8080")
+}
+```
+
+## Integrating with an Existing Application
+
+If you already have a Gin application, adding GORM Studio is a one-liner. You do not need to restructure anything:
+
+```go
+func main() {
+    db := setupDatabase()     // your existing database setup
+    r := setupRouter()        // your existing Gin router with all your routes
+
+    // Add this single line to mount GORM Studio
+    studio.Mount(r, db, []interface{}{&User{}, &Post{}, &Comment{}})
+
+    r.Run(":8080")
+}
+```
+
+GORM Studio mounts all its routes under the `/studio` prefix, so it will not conflict with your existing API routes.
+
+:::tip
+In production, you may want to protect the GORM Studio routes with authentication middleware to prevent unauthorized access to your data. See the [Configuration](/configuration) docs for details on adding middleware.
+:::
+
+## What to Explore Next
+
+Now that GORM Studio is running, try these things in the browser:
+
+1. **Browse data** — Click on a table in the sidebar to see all records in a paginated view.
+2. **Create a record** — Click the "Add" button to open a form and insert a new row.
+3. **Edit a record** — Click on any row to open it in edit mode and modify field values.
+4. **Follow relationships** — Click on a foreign key value to navigate to the related record.
+5. **Run SQL** — Open the SQL editor tab and run a query like `SELECT * FROM users WHERE name LIKE '%alice%'`.
+6. **Export data** — Use the export button to download your table data as JSON, CSV, or Excel.
+
+## Next Steps
+
+- [Features](/features) — Deep dive into everything GORM Studio can do.
+- [Configuration](/configuration) — Customize GORM Studio's behavior, add authentication, and more.
+- [Schema Export](/export) — Learn about exporting your schema as SQL, DBML, or ERD diagrams.
+- [Data Import/Export](/import) — Bulk import and export data in various formats.

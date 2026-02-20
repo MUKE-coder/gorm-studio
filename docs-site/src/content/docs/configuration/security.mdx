@@ -1,0 +1,163 @@
+---
+title: Security
+description: Understand the security measures built into GORM Studio, including input validation, query parameterization, DDL blocking, and best practices for production deployments.
+---
+
+GORM Studio provides direct access to your database through a web interface, so multiple layers of security are built in to prevent misuse and injection attacks.
+
+## Built-in Protections
+
+### Table Validation
+
+All table names are validated against the list of known models you pass to `studio.Mount`. Requests referencing a table that is not in the registered model list are rejected. This prevents attackers from accessing system tables or other tables outside the intended scope.
+
+```go
+// Only these three tables are accessible through the studio
+models := []any{&User{}, &Product{}, &Order{}}
+studio.Mount(router, db, models)
+```
+
+### Column Validation
+
+Only known columns (derived from GORM's model metadata) are accepted for filtering and sorting operations. Arbitrary column names or SQL expressions injected through filter or sort parameters are rejected before reaching the database.
+
+### Parameterized Queries
+
+All queries use GORM's built-in query parameterization. User-supplied values are never interpolated directly into SQL strings. This is the primary defense against SQL injection in data browsing and editing operations.
+
+```go
+// Internally, queries are built like this -- never with string concatenation
+db.Where("name = ?", userInput).Find(&results)
+```
+
+### Identifier Quoting
+
+Table and column names used in queries are properly quoted according to the database dialect:
+
+- **SQLite and PostgreSQL**: double-quote quoting (e.g., `"table_name"."column_name"`)
+- **MySQL**: backtick quoting (e.g., `` `table_name`.`column_name` ``)
+
+This prevents identifiers from being interpreted as SQL keywords or injected expressions.
+
+### DDL Blocking in the SQL Editor
+
+When the raw SQL editor is enabled, submitted queries are scanned for dangerous DDL and administrative statements. The following statement types are blocked:
+
+| Blocked Statement | Reason |
+|---|---|
+| `DROP` | Prevents deletion of tables, indexes, and databases |
+| `ALTER` | Prevents schema modification |
+| `TRUNCATE` | Prevents bulk data deletion |
+| `CREATE` | Prevents creation of new tables or objects |
+| `ATTACH` | Prevents attaching external databases (SQLite) |
+| `DETACH` | Prevents detaching databases (SQLite) |
+| `GRANT` | Prevents privilege escalation |
+| `REVOKE` | Prevents privilege changes |
+
+If a submitted SQL query contains any of these keywords as statements, the query is rejected before execution.
+
+:::note
+DDL blocking is a defense-in-depth measure. For maximum safety, also use a database user with restricted permissions that cannot execute DDL statements at the database level.
+:::
+
+### CSV Export Formula Injection Prevention
+
+When exporting data to CSV, cell values that begin with the characters `=`, `+`, `-`, or `@` are prefixed with a single quote (`'`). This prevents spreadsheet applications like Excel or Google Sheets from interpreting exported data as formulas, which is a known attack vector for CSV injection.
+
+### Subresource Integrity (SRI) on CDN Scripts
+
+The embedded studio UI loads JavaScript and CSS assets from CDN sources with Subresource Integrity (SRI) hashes. This ensures that if a CDN is compromised, tampered scripts will be rejected by the browser.
+
+### Startup Security Warnings
+
+When GORM Studio starts without authentication configured, it logs prominent warnings to alert operators:
+
+```
+[GORM Studio] WARNING: No authentication middleware configured...
+[GORM Studio] WARNING: Write operations are enabled without authentication...
+[GORM Studio] WARNING: Raw SQL endpoint is enabled without authentication...
+```
+
+These warnings are logged every time the application starts, ensuring they are visible in deployment logs.
+
+## Best Practices
+
+### Always Use AuthMiddleware in Non-Development Environments
+
+Authentication is the single most important security setting. Without it, anyone who can reach the studio URL has full access to your data.
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    AuthMiddleware: gin.BasicAuth(gin.Accounts{
+        "admin": os.Getenv("STUDIO_PASSWORD"),
+    }),
+})
+```
+
+### Use ReadOnly Mode for Staging
+
+In staging or shared environments where developers need to inspect data but should not modify it, enable read-only mode:
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    ReadOnly:       true,
+    AuthMiddleware: authMiddleware,
+})
+```
+
+### Disable the SQL Editor to Prevent Arbitrary Queries
+
+Even with DDL blocking, the SQL editor allows `SELECT` queries against any registered table. If this is not needed, disable it entirely:
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    DisableSQL:     true,
+    AuthMiddleware: authMiddleware,
+})
+```
+
+### Restrict Network Access
+
+Limit who can reach the studio at the network level:
+
+- Bind your server to `127.0.0.1` instead of `0.0.0.0` if studio access should be local only.
+- Place the studio behind a VPN or internal load balancer in cloud deployments.
+- Use firewall rules to restrict access to the studio port from trusted IP ranges.
+
+```go
+// Only accessible from localhost
+router.Run("127.0.0.1:8080")
+```
+
+### Use a Restricted Database User
+
+Connect GORM to a database user with the minimum required privileges. Even if all application-level protections are bypassed, the database user's permissions act as a final safeguard.
+
+```sql
+-- Example: PostgreSQL read-only user for staging
+CREATE ROLE studio_reader WITH LOGIN PASSWORD 'secure-password';
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO studio_reader;
+```
+
+### Recommended Production Configuration
+
+Combine all best practices for the most secure setup:
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    Prefix:     "/admin/studio",
+    ReadOnly:   true,
+    DisableSQL: true,
+    AuthMiddleware: gin.BasicAuth(gin.Accounts{
+        "admin": os.Getenv("STUDIO_PASSWORD"),
+    }),
+    CORSAllowOrigins: []string{"https://myapp.com"},
+})
+```
+
+This configuration:
+- Serves the studio under a non-default prefix
+- Prevents all write operations
+- Disables the raw SQL editor
+- Requires Basic Auth credentials
+- Restricts cross-origin requests to a single domain

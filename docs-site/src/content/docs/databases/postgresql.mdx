@@ -1,0 +1,66 @@
+---
+title: "PostgreSQL"
+description: "Using GORM Studio with PostgreSQL databases."
+---
+
+## PostgreSQL Driver
+
+Install the GORM PostgreSQL driver:
+
+```bash
+go get gorm.io/driver/postgres
+```
+
+## Full Example
+
+This example loads connection details from a `.env` file using `godotenv`:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "os"
+    "github.com/MUKE-coder/gorm-studio/studio"
+    "github.com/gin-gonic/gin"
+    "github.com/joho/godotenv"
+    "gorm.io/driver/postgres"
+    "gorm.io/gorm"
+)
+
+type User struct {
+    ID    uint   `gorm:"primarykey"`
+    Name  string `gorm:"size:100"`
+    Email string `gorm:"size:200;uniqueIndex"`
+}
+
+func main() {
+    godotenv.Load()
+    dsn := fmt.Sprintf(
+        "host=%s user=%s password=%s dbname=%s sslmode=%s",
+        os.Getenv("PGHOST"),
+        os.Getenv("PGUSER"),
+        os.Getenv("PGPASSWORD"),
+        os.Getenv("PGDATABASE"),
+        os.Getenv("PGSSLMODE"),
+    )
+    db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+    if err != nil {
+        log.Fatal("Failed to connect:", err)
+    }
+    db.AutoMigrate(&User{})
+
+    r := gin.Default()
+    studio.Mount(r, db, []interface{}{&User{}})
+    r.Run(":8080")
+}
+```
+
+## Introspection
+
+PostgreSQL introspection uses `information_schema.tables` and `information_schema.columns` to discover your database structure. Identifiers are quoted with double quotes.
+
+## Cloud Providers
+
+GORM Studio works with cloud PostgreSQL providers such as Neon, Supabase, and others. Simply provide the connection string from your cloud provider as the DSN.

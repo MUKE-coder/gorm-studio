@@ -1,0 +1,85 @@
+---
+title: "Data Import"
+description: "Import data from JSON, CSV, SQL, or Excel files into existing tables."
+---
+
+- **Endpoint:** `POST /studio/api/import/data` (multipart file upload)
+- Only available when ReadOnly is false
+- **Supported file extensions:** `.json`, `.csv`, `.sql`, `.xlsx`
+- Tables must already exist - data import does not create tables
+
+## JSON Import
+
+Can import data for multiple tables at once:
+
+```json
+{
+  "users": [
+    {"name": "Alice", "email": "alice@example.com"},
+    {"name": "Bob", "email": "bob@example.com"}
+  ],
+  "posts": [
+    {"title": "Hello", "user_id": 1}
+  ]
+}
+```
+
+Or single-table format with the `table` query parameter:
+
+```bash
+curl -X POST "http://localhost:8080/studio/api/import/data?table=users" \
+  -F "file=@users.json"
+```
+
+## CSV Import
+
+Requires the `table` query parameter. First row must be column headers:
+
+```csv
+name,email
+Alice,alice@example.com
+Bob,bob@example.com
+```
+
+```bash
+curl -X POST "http://localhost:8080/studio/api/import/data?table=users" \
+  -F "file=@users.csv"
+```
+
+## SQL Import
+
+Upload a `.sql` file containing INSERT statements. Only INSERT statements are processed; all other statements are skipped for safety.
+
+```sql
+INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com');
+INSERT INTO users (name, email) VALUES ('Bob', 'bob@example.com');
+```
+
+## Excel Import
+
+Upload an `.xlsx` file. Requires the `table` query parameter. First row must be column headers.
+
+```bash
+curl -X POST "http://localhost:8080/studio/api/import/data?table=users" \
+  -F "file=@users.xlsx"
+```
+
+## Response
+
+```json
+{
+  "rows_imported": 15,
+  "table": "users"
+}
+```
+
+For multi-table JSON imports:
+
+```json
+{
+  "tables": {
+    "users": {"rows_imported": 10},
+    "posts": {"rows_imported": 5}
+  }
+}
+```

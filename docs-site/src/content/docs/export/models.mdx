@@ -1,0 +1,51 @@
+---
+title: "Go Models Export"
+description: "Generate Go struct definitions from your database schema."
+---
+
+Generate Go struct definitions from your database schema with a single API call.
+
+**Endpoint:** `GET /studio/api/export/models`
+
+- Returns a downloadable `.go` file with struct definitions for all tables
+- Includes proper GORM tags, type mapping, and relationship fields
+- Struct names are singularized PascalCase (e.g., `users` table -> `User` struct)
+- Column names converted to PascalCase (e.g., `user_id` -> `UserID`)
+- Common acronyms preserved (ID, URL, HTTP, API, etc.)
+
+### Example Output
+
+```go
+package models
+
+import "time"
+
+type User struct {
+    ID        uint      `gorm:"column:id;primaryKey"`
+    Name      string    `gorm:"column:name;size:100"`
+    Email     string    `gorm:"column:email;size:200;uniqueIndex"`
+    CreatedAt time.Time `gorm:"column:created_at"`
+    UpdatedAt time.Time `gorm:"column:updated_at"`
+    Posts     []Post    `gorm:"foreignKey:UserID"`
+}
+
+type Post struct {
+    ID     uint   `gorm:"column:id;primaryKey"`
+    Title  string `gorm:"column:title;size:255"`
+    Body   string `gorm:"column:body;type:text"`
+    UserID uint   `gorm:"column:user_id"`
+}
+```
+
+### SQL Type Mapping
+
+| SQL Type | Go Type |
+|----------|---------|
+| INTEGER, INT, BIGINT | `int64` |
+| VARCHAR, TEXT, CHAR | `string` |
+| BOOLEAN, BOOL | `bool` |
+| FLOAT, DOUBLE, REAL, DECIMAL | `float64` |
+| TIMESTAMP, DATETIME, DATE | `time.Time` |
+| BLOB, BYTEA | `[]byte` |
+
+Nullable columns use pointer types (e.g., `*string`, `*int64`).

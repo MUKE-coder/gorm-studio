@@ -1,0 +1,64 @@
+---
+title: "Data Export"
+description: "Export your entire database or individual tables as JSON, CSV, or SQL."
+---
+
+Export all data from your database or from individual tables.
+
+### Full Database Export
+
+**Endpoint:** `GET /studio/api/export/data?format=<format>`
+
+#### JSON Format
+
+Returns a single JSON document with all tables and their data:
+
+```bash
+curl http://localhost:8080/studio/api/export/data?format=json
+```
+
+```json
+{
+  "exported_at": "2024-01-15T10:30:00Z",
+  "tables": {
+    "users": [
+      {"id": 1, "name": "Alice", "email": "alice@example.com"},
+      {"id": 2, "name": "Bob", "email": "bob@example.com"}
+    ],
+    "posts": [
+      {"id": 1, "title": "Hello World", "user_id": 1}
+    ]
+  }
+}
+```
+
+#### CSV Format (ZIP)
+
+Returns a ZIP archive containing one CSV file per table:
+
+```bash
+curl http://localhost:8080/studio/api/export/data?format=csv -o data.zip
+```
+
+The ZIP contains files like `users.csv`, `posts.csv`, etc.
+
+CSV values that start with `=`, `+`, `-`, or `@` are prefixed with `'` to prevent formula injection in spreadsheet applications.
+
+#### SQL Format
+
+Returns INSERT statements for all data:
+
+```bash
+curl http://localhost:8080/studio/api/export/data?format=sql
+```
+
+```sql
+INSERT INTO users (id, name, email) VALUES (1, 'Alice', 'alice@example.com');
+INSERT INTO users (id, name, email) VALUES (2, 'Bob', 'bob@example.com');
+```
+
+### Per-Table Export
+
+**Endpoint:** `GET /studio/api/tables/:table/export?format=<format>`
+
+Supports `json` and `csv` formats for individual tables.

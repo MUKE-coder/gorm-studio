@@ -1,0 +1,70 @@
+---
+title: "Schema Export"
+description: "Export your database schema as SQL, JSON, YAML, DBML, or ERD diagrams."
+---
+
+Export your database schema in multiple formats using a single endpoint.
+
+**Endpoint:** `GET /studio/api/export/schema?format=<format>`
+
+**Supported formats:** `sql`, `json`, `yaml`, `dbml`, `png`, `pdf`
+
+### SQL Format
+
+Returns `CREATE TABLE` DDL statements for all tables with columns, types, and constraints.
+
+```bash
+curl http://localhost:8080/studio/api/export/schema?format=sql
+```
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY,
+  name VARCHAR(100),
+  email VARCHAR(200) UNIQUE NOT NULL
+);
+```
+
+### JSON Format
+
+Returns structured JSON with all table definitions.
+
+```bash
+curl http://localhost:8080/studio/api/export/schema?format=json
+```
+
+### YAML Format
+
+Same structure as JSON but in YAML format.
+
+### DBML Format
+
+Exports in Database Markup Language format, compatible with [dbdiagram.io](https://dbdiagram.io).
+
+```bash
+curl http://localhost:8080/studio/api/export/schema?format=dbml
+```
+
+```dbml
+Table users {
+  id integer [pk]
+  name varchar(100)
+  email varchar(200) [unique, not null]
+}
+```
+
+### PNG ERD Diagram
+
+Renders an Entity Relationship Diagram as a PNG image. Tables are shown as boxes with columns, primary keys marked with a key icon, and relationships drawn as lines between tables.
+
+```bash
+curl http://localhost:8080/studio/api/export/schema?format=png -o erd.png
+```
+
+### PDF ERD Diagram
+
+Same as PNG but rendered as a PDF document.
+
+```bash
+curl http://localhost:8080/studio/api/export/schema?format=pdf -o erd.pdf
+```

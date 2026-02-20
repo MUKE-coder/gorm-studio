@@ -1,0 +1,68 @@
+---
+title: "SQL API"
+description: "API endpoint for executing raw SQL queries."
+---
+
+## POST /studio/api/sql
+
+Execute a raw SQL query. Not available when `DisableSQL` is set to `true`.
+
+**Request:**
+
+```json
+{"query": "SELECT * FROM users WHERE active = true"}
+```
+
+---
+
+### Read Queries
+
+Queries starting with `SELECT`, `SHOW`, `DESCRIBE`, `EXPLAIN`, or `PRAGMA` are treated as read queries.
+
+**Response:**
+
+```json
+{
+  "columns": ["id", "name", "email", "active"],
+  "rows": [
+    {"id": 1, "name": "Alice", "email": "alice@example.com", "active": true}
+  ]
+}
+```
+
+The response includes a `columns` array preserving column order and a `rows` array of objects keyed by column name.
+
+---
+
+### Write Queries
+
+`INSERT`, `UPDATE`, and `DELETE` queries are treated as write queries. Not available in ReadOnly mode.
+
+**Response:**
+
+```json
+{"affected_rows": 3}
+```
+
+---
+
+### Blocked Statements
+
+These DDL statements are always blocked regardless of ReadOnly mode:
+
+- `DROP`
+- `ALTER`
+- `TRUNCATE`
+- `CREATE`
+- `ATTACH`
+- `DETACH`
+- `GRANT`
+- `REVOKE`
+
+**Error response:**
+
+```json
+{"error": "DDL statements (DROP, ALTER, TRUNCATE, CREATE, etc.) are not allowed"}
+```
+
+DDL operations are blocked to prevent accidental schema changes through the SQL endpoint. Use the schema import endpoints or manage schema changes through your application's migration system instead.

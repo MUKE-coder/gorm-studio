@@ -1,0 +1,88 @@
+---
+title: "Import API"
+description: "API endpoints for importing schemas, data, and Go models."
+---
+
+All import endpoints require multipart file upload and are not available in ReadOnly mode.
+
+---
+
+## POST /studio/api/import/schema
+
+Import a schema file to create tables.
+
+**Form Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| file | file | Schema file (`.sql`, `.json`, `.yaml`, `.dbml`) |
+
+```bash
+curl -X POST http://localhost:8080/studio/api/import/schema \
+  -F "file=@schema.sql"
+```
+
+The response includes created table names and generated Go code.
+
+---
+
+## POST /studio/api/import/data
+
+Import data into existing tables.
+
+**Form Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| file | file | Data file (`.json`, `.csv`, `.sql`, `.xlsx`) |
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| table | string | Required for CSV and Excel imports |
+
+```bash
+# Multi-table JSON import
+curl -X POST http://localhost:8080/studio/api/import/data \
+  -F "file=@data.json"
+
+# CSV into a specific table
+curl -X POST "http://localhost:8080/studio/api/import/data?table=users" \
+  -F "file=@users.csv"
+```
+
+For JSON files, the expected format is an object where keys are table names and values are arrays of row objects:
+
+```json
+{
+  "users": [
+    {"name": "Alice", "email": "alice@example.com"},
+    {"name": "Bob", "email": "bob@example.com"}
+  ],
+  "posts": [
+    {"title": "Hello World", "user_id": 1}
+  ]
+}
+```
+
+For CSV and Excel files, the `table` query parameter is required to specify which table the data should be imported into.
+
+---
+
+## POST /studio/api/import/models
+
+Import Go struct definitions to create tables.
+
+**Form Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| file | file | Go source file (`.go`) |
+
+```bash
+curl -X POST http://localhost:8080/studio/api/import/models \
+  -F "file=@models.go"
+```
+
+The Go file should contain struct definitions with GORM tags. GORM Studio will parse the structs and create the corresponding database tables.

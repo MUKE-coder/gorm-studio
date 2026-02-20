@@ -1,0 +1,110 @@
+---
+title: "Data Management"
+description: "Browse, create, edit, and delete records with pagination, sorting, and filtering."
+---
+
+GORM Studio provides a full-featured data management interface for browsing, creating, editing, and deleting records across all your tables. Everything is available through both the web UI and the REST API.
+
+## Browsing Records
+
+The data grid displays paginated rows for any table. The default page size is 50 rows, with a maximum of 500 rows per page.
+
+```
+GET /studio/api/tables/users/rows?page=1&page_size=25
+```
+
+## Sorting
+
+Click column headers in the web UI to sort, or use query parameters:
+
+```
+GET /studio/api/tables/users/rows?sort_by=name&sort_order=asc
+```
+
+The `sort_order` parameter accepts `asc` or `desc`.
+
+## Searching
+
+Full-text search across all text and varchar columns:
+
+```
+GET /studio/api/tables/users/rows?search=john
+```
+
+This searches every text-compatible column in the table for the given term.
+
+## Filtering
+
+Per-column filtering with support for LIKE matching using `%`:
+
+```
+GET /studio/api/tables/users/rows?filter_email=%gmail%
+```
+
+You can combine multiple filters:
+
+```
+GET /studio/api/tables/users/rows?filter_name=John&filter_email=%gmail%
+```
+
+## Creating Records
+
+Send a POST request with a JSON body containing the field values:
+
+```bash
+# Create a new record
+curl -X POST http://localhost:8080/studio/api/tables/users/rows \
+  -H "Content-Type: application/json" \
+  -d '{"name": "John", "email": "john@example.com"}'
+```
+
+## Editing Records
+
+Send a PUT request with the record ID and the fields to update:
+
+```bash
+# Update an existing record
+curl -X PUT http://localhost:8080/studio/api/tables/users/rows/1 \
+  -H "Content-Type: application/json" \
+  -d '{"name": "John Doe"}'
+```
+
+## Deleting Records
+
+Delete a single record by ID:
+
+```bash
+# Delete a record
+curl -X DELETE http://localhost:8080/studio/api/tables/users/rows/1
+```
+
+### Bulk Delete
+
+Delete multiple records at once by posting an array of IDs:
+
+```bash
+# Bulk delete
+curl -X POST http://localhost:8080/studio/api/tables/users/rows/bulk-delete \
+  -H "Content-Type: application/json" \
+  -d '{"ids": [1, 2, 3]}'
+```
+
+## Composite Primary Keys
+
+Tables with composite primary keys are fully supported. When referencing a record with a composite key, use comma-separated IDs in the URL:
+
+```
+PUT /studio/api/tables/order_items/rows/42,7
+DELETE /studio/api/tables/order_items/rows/42,7
+```
+
+## Query Parameter Summary
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `page` | Page number (1-based) | `page=2` |
+| `page_size` | Rows per page (max 500) | `page_size=25` |
+| `sort_by` | Column to sort by | `sort_by=name` |
+| `sort_order` | Sort direction | `sort_order=asc` |
+| `search` | Full-text search term | `search=john` |
+| `filter_<column>` | Per-column filter | `filter_email=%gmail%` |
