@@ -106,8 +106,20 @@ func Mount(router *gin.Engine, db *gorm.DB, models []interface{}, configs ...Con
 			// Relations
 			api.GET("/tables/:table/rows/:id/relations/:relation", handlers.GetRelatedRows)
 
-			// Export
+			// Export (per-table)
 			api.GET("/tables/:table/export", handlers.ExportTable)
+
+			// Export (full database)
+			api.GET("/export/schema", handlers.ExportSchema)
+			api.GET("/export/data", handlers.ExportAllData)
+			api.GET("/export/models", handlers.ExportGoModels)
+
+			// Import (gated by ReadOnly)
+			if !cfg.ReadOnly {
+				api.POST("/import/schema", handlers.ImportSchema)
+				api.POST("/import/data", handlers.ImportData)
+				api.POST("/import/models", handlers.ImportGoModels)
+			}
 
 			// Raw SQL
 			if !cfg.DisableSQL {

@@ -932,6 +932,162 @@ function SQLEditor({ showToast, schema }) {
   );
 }
 
+// ─── Tools Panel ─────────────────────────────────────────────
+function ToolCard({ title, description, children }) {
+  return React.createElement('div', {style:{background:'var(--bg-secondary)',border:'1px solid var(--border)',borderRadius:'var(--radius)',padding:16,marginBottom:12}},
+    React.createElement('div', {style:{fontWeight:600,fontSize:14,marginBottom:4}}, title),
+    React.createElement('div', {style:{fontSize:12,color:'var(--text-muted)',marginBottom:12}}, description),
+    children
+  );
+}
+
+function FileUploader({ endpoint, accept, showToast, onSuccess, extraFields }) {
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
+  const upload = async (file) => {
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    if (extraFields) {
+      Object.entries(extraFields).forEach(([k,v]) => { if (v) formData.append(k, v); });
+    }
+    try {
+      const res = await fetch(CONFIG.prefix + '/api' + endpoint, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      if (onSuccess) onSuccess(data);
+    } catch (err) {
+      showToast('error', err.message);
+    }
+    setUploading(false);
+  };
+
+  return React.createElement('div', {
+    onDragOver: (e) => { e.preventDefault(); setDragOver(true); },
+    onDragLeave: () => setDragOver(false),
+    onDrop: (e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); },
+    onClick: () => {
+      const input = document.createElement('input');
+      input.type = 'file'; input.accept = accept;
+      input.onchange = (e) => { if (e.target.files[0]) upload(e.target.files[0]); };
+      input.click();
+    },
+    style: {
+      border: '2px dashed ' + (dragOver ? 'var(--accent)' : 'var(--border)'),
+      borderRadius: 'var(--radius)', padding: 20, textAlign: 'center',
+      background: dragOver ? 'rgba(108,92,231,0.08)' : 'transparent',
+      cursor: 'pointer', transition: 'all 0.2s'
+    }
+  },
+    uploading
+      ? React.createElement('div', {className:'spinner', style:{margin:'0 auto'}})
+      : React.createElement(React.Fragment, null,
+          React.createElement('div', {style:{fontSize:24,marginBottom:8}}, '\u2191'),
+          React.createElement('div', {style:{fontSize:12,color:'var(--text-muted)'}}, 'Drop file here or click to browse'),
+          React.createElement('div', {style:{fontSize:11,color:'var(--text-muted)',marginTop:4}}, accept)
+        )
+  );
+}
+
+function ToolsPanel({ schema, showToast, onRefresh }) {
+  const [importTable, setImportTable] = useState('');
+  const [goCodeModal, setGoCodeModal] = useState(null);
+  const API = CONFIG.prefix + '/api';
+  const tables = schema?.tables || [];
+  const exportFormats = ['sql','json','yaml','dbml','png','pdf'];
+  const dataFormats = ['json','csv','sql'];
+
+  return React.createElement('div', {style:{padding:24,overflowY:'auto',height:'calc(100vh - 60px)'}},
+    // Export Section
+    React.createElement('h3', {style:{marginBottom:16,color:'var(--text-secondary)',fontSize:12,textTransform:'uppercase',letterSpacing:1}}, 'Export'),
+
+    React.createElement(ToolCard, {title:'Schema Export', description:'Export database schema in various formats'},
+      React.createElement('div', {style:{display:'flex',gap:8,flexWrap:'wrap'}},
+        exportFormats.map(fmt =>
+          React.createElement('button', {key:fmt, className:'btn btn-default', style:{fontSize:12,padding:'6px 12px'},
+            onClick:() => window.open(API+'/export/schema?format='+fmt, '_blank')
+          }, fmt.toUpperCase())
+        )
+      )
+    ),
+
+    React.createElement(ToolCard, {title:'Data Export', description:'Export all database data'},
+      React.createElement('div', {style:{display:'flex',gap:8,flexWrap:'wrap'}},
+        dataFormats.map(fmt =>
+          React.createElement('button', {key:fmt, className:'btn btn-default', style:{fontSize:12,padding:'6px 12px'},
+            onClick:() => window.open(API+'/export/data?format='+fmt, '_blank')
+          }, fmt.toUpperCase())
+        )
+      )
+    ),
+
+    React.createElement(ToolCard, {title:'Go Models', description:'Generate Go struct code from database schema'},
+      React.createElement('button', {className:'btn btn-primary', style:{fontSize:12,padding:'6px 16px'},
+        onClick:() => window.open(API+'/export/models', '_blank')
+      }, 'Download models.go')
+    ),
+
+    // Import Section (hidden in read-only mode)
+    !CONFIG.readOnly && React.createElement(React.Fragment, null,
+      React.createElement('h3', {style:{marginTop:32,marginBottom:16,color:'var(--text-secondary)',fontSize:12,textTransform:'uppercase',letterSpacing:1}}, 'Import'),
+
+      React.createElement(ToolCard, {title:'Schema Import', description:'Create tables from schema files (.sql, .json, .yaml, .dbml)'},
+        React.createElement(FileUploader, {
+          endpoint:'/import/schema', accept:'.sql,.json,.yaml,.yml,.dbml', showToast:showToast,
+          onSuccess:(data) => {
+            showToast('success', 'Created tables: ' + (data.tables_created||[]).join(', '));
+            if (data.go_code) setGoCodeModal(data.go_code);
+            onRefresh();
+          }
+        })
+      ),
+
+      React.createElement(ToolCard, {title:'Data Import', description:'Import data from files (.json, .csv, .sql, .xlsx)'},
+        React.createElement('div', {style:{marginBottom:12}},
+          React.createElement('select', {
+            style:{width:'100%%',padding:'8px 12px',background:'var(--bg-tertiary)',color:'var(--text-primary)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:13,marginBottom:8},
+            value:importTable, onChange:(e)=>setImportTable(e.target.value)
+          },
+            React.createElement('option', {value:''}, 'Select table (required for CSV/Excel)'),
+            tables.map(t => React.createElement('option', {key:t.name,value:t.name}, t.name))
+          )
+        ),
+        React.createElement(FileUploader, {
+          endpoint:'/import/data', accept:'.json,.csv,.sql,.xlsx', showToast:showToast,
+          extraFields:{table:importTable},
+          onSuccess:(data) => {
+            showToast('success', (data.rows_inserted||0) + ' rows imported into ' + (data.tables_affected||[]).join(', '));
+            onRefresh();
+          }
+        })
+      ),
+
+      React.createElement(ToolCard, {title:'Go Models Import', description:'Create tables from Go struct definitions (.go file)'},
+        React.createElement(FileUploader, {
+          endpoint:'/import/models', accept:'.go', showToast:showToast,
+          onSuccess:(data) => {
+            showToast('success', 'Created tables: ' + (data.tables_created||[]).join(', ') + ' from structs: ' + (data.structs_parsed||[]).join(', '));
+            onRefresh();
+          }
+        })
+      )
+    ),
+
+    // Go Code Modal
+    goCodeModal && React.createElement(Modal, {title:'Generated Go Models', onClose:()=>setGoCodeModal(null), wide:true},
+      React.createElement('pre', {style:{background:'var(--bg-primary)',padding:16,borderRadius:'var(--radius)',overflow:'auto',maxHeight:500,fontSize:13,fontFamily:'JetBrains Mono, monospace',whiteSpace:'pre-wrap'}}, goCodeModal),
+      React.createElement('div', {style:{marginTop:12,display:'flex',gap:8}},
+        React.createElement('button', {className:'btn btn-primary', onClick:() => {
+          navigator.clipboard.writeText(goCodeModal);
+          showToast('success', 'Copied to clipboard');
+        }}, 'Copy to Clipboard'),
+        React.createElement('button', {className:'btn btn-default', onClick:()=>setGoCodeModal(null)}, 'Close')
+      )
+    )
+  );
+}
+
 // ─── App ────────────────────────────────────────────────────
 function App() {
   const [schema, setSchema] = useState(null);
@@ -1050,6 +1206,7 @@ function App() {
           {!CONFIG.disableSQL && (
             <button className={'sidebar-btn' + (view === 'sql' ? ' active' : '')} onClick={() => setView('sql')}>SQL</button>
           )}
+          <button className={'sidebar-btn' + (view === 'tools' ? ' active' : '')} onClick={() => setView('tools')}>Tools</button>
           <button className="sidebar-btn" onClick={refreshSchema}>↻</button>
         </div>
       </div>
@@ -1080,6 +1237,16 @@ function App() {
           ) : (
             <div className="empty-state"><Icons.Database /><p>Select a table from the sidebar</p></div>
           )
+        ) : view === 'tools' ? (
+          <>
+            <div className="main-header">
+              <div className="main-title">
+                <h2>Import & Export Tools</h2>
+                <span className="badge">Database tools</span>
+              </div>
+            </div>
+            <ToolsPanel schema={schema} showToast={showToast} onRefresh={refreshSchema} />
+          </>
         ) : (
           <>
             <div className="main-header">
