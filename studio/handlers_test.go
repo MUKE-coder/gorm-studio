@@ -521,6 +521,57 @@ func TestRefreshSchema(t *testing.T) {
 	}
 }
 
+func TestAuthMiddlewareStripsWWWAuthenticate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	db.AutoMigrate(&TestUser{})
+
+	router := gin.New()
+	err = Mount(router, db, testModels(), Config{
+		Prefix: "/studio",
+		AuthMiddleware: gin.BasicAuth(gin.Accounts{
+			"admin": "secret",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("failed to mount: %v", err)
+	}
+
+	// Request without credentials — should get 401 WITHOUT WWW-Authenticate header
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/studio/api/schema", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+	if got := w.Header().Get("WWW-Authenticate"); got != "" {
+		t.Errorf("WWW-Authenticate header should be stripped, got %q", got)
+	}
+
+	// Request with valid credentials — should succeed
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest("GET", "/studio/api/schema", nil)
+	req2.SetBasicAuth("admin", "secret")
+	router.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusOK {
+		t.Errorf("expected 200 with valid auth, got %d", w2.Code)
+	}
+
+	// Frontend should be served without auth
+	w3 := httptest.NewRecorder()
+	req3, _ := http.NewRequest("GET", "/studio", nil)
+	router.ServeHTTP(w3, req3)
+
+	if w3.Code != http.StatusOK {
+		t.Errorf("expected 200 for frontend without auth, got %d", w3.Code)
+	}
+}
+
 func TestQuoteIdent(t *testing.T) {
 	tests := []struct {
 		dialect string

@@ -85,7 +85,15 @@ func Mount(router *gin.Engine, db *gorm.DB, models []interface{}, configs ...Con
 		api := group.Group("/api")
 
 		if cfg.AuthMiddleware != nil {
-			api.Use(cfg.AuthMiddleware)
+			api.Use(func(c *gin.Context) {
+				cfg.AuthMiddleware(c)
+				// Strip WWW-Authenticate header to prevent browser native auth popup.
+				// gin.BasicAuth sets "WWW-Authenticate: Basic realm=..." which causes
+				// browsers to show their native popup instead of our React login page.
+				if c.IsAborted() {
+					c.Writer.Header().Del("WWW-Authenticate")
+				}
+			})
 		}
 
 		{
