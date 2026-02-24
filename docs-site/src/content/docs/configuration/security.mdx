@@ -84,7 +84,7 @@ These warnings are logged every time the application starts, ensuring they are v
 
 ### Always Use AuthMiddleware in Non-Development Environments
 
-Authentication is the single most important security setting. Without it, anyone who can reach the studio URL has full access to your data.
+Authentication is the single most important security setting. Without it, anyone who can reach the studio URL has full access to your data. When authentication is configured, the studio frontend HTML is served without auth (so the React login UI can render), while all API routes are protected by the middleware. The React app detects 401 responses and displays a custom login form.
 
 ```go
 studio.Mount(router, db, models, studio.Config{

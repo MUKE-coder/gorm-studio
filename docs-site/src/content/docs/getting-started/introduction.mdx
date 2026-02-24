@@ -42,7 +42,7 @@ View your data in a paginated, sortable, and searchable table. Click any column 
 
 ### CRUD Operations
 
-Create, read, update, and delete records through auto-generated forms. GORM Studio inspects your model's field types and GORM tags to render the appropriate input controls — text fields, number inputs, date pickers, dropdowns for enums, and toggles for booleans.
+Create, read, update, and delete records through auto-generated forms. GORM Studio inspects your model's field types and GORM tags to render the appropriate input controls — text fields, number inputs, date pickers, dropdowns for enums, and toggles for booleans. Delete operations show a themed confirmation modal instead of the browser's native popup, clearly warning that the action cannot be undone.
 
 ```go
 // Enum-like fields get rendered as dropdowns
@@ -138,6 +138,10 @@ type Product struct {
     UpdatedAt   time.Time `gorm:"column:updated_at"`
 }
 ```
+
+### Authentication and Login UI
+
+When authentication middleware is configured, GORM Studio displays a custom-themed login page instead of the browser's native HTTP Basic Auth popup. The login page matches the studio's dark/light theme and provides a professional user experience with clear error messages for invalid credentials.
 
 ## Supported Databases
 

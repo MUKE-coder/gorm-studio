@@ -268,6 +268,27 @@ html, body, #root { height: 100%%; font-family: var(--font-sans); background: va
 .export-menu { position: absolute; top: 100%%; right: 0; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 0; z-index: 50; min-width: 140px; box-shadow: var(--shadow); }
 .export-menu-item { padding: 6px 12px; font-size: 12px; cursor: pointer; transition: background var(--transition); display: block; width: 100%%; text-align: left; border: none; background: none; color: var(--text-primary); font-family: var(--font-sans); }
 .export-menu-item:hover { background: var(--bg-hover); }
+
+/* Login Page */
+.login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg-primary); padding: 20px; }
+.login-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 40px; width: 100%%; max-width: 400px; box-shadow: var(--shadow); animation: slideUp 0.3s ease; position: relative; }
+.login-logo { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 8px; }
+.login-logo svg { width: 32px; height: 32px; color: var(--accent); }
+.login-logo span { font-weight: 700; font-size: 20px; letter-spacing: -0.3px; }
+.login-subtitle { text-align: center; color: var(--text-muted); font-size: 13px; margin-bottom: 32px; }
+.login-error { background: rgba(255,107,107,0.1); border: 1px solid var(--danger); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 13px; color: var(--danger); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.login-btn { width: 100%%; padding: 10px; font-size: 14px; font-family: var(--font-sans); font-weight: 600; background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer; transition: background var(--transition); margin-top: 8px; }
+.login-btn:hover { background: var(--accent-hover); }
+.login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* Confirm Modal */
+.confirm-icon { width: 48px; height: 48px; border-radius: 50%%; background: rgba(255,107,107,0.1); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+.confirm-icon svg { width: 24px; height: 24px; color: var(--danger); }
+.confirm-title { font-size: 16px; font-weight: 600; text-align: center; margin-bottom: 8px; color: var(--text-primary); }
+.confirm-message { font-size: 13px; color: var(--text-secondary); text-align: center; margin-bottom: 24px; line-height: 1.5; }
+.confirm-actions { display: flex; gap: 8px; justify-content: center; }
+.btn-danger-solid { background: var(--danger); color: white; border-color: var(--danger); }
+.btn-danger-solid:hover { background: var(--danger-hover); }
 </style>
 </head>
 <body>
@@ -290,16 +311,60 @@ const { useState, useEffect, useCallback, useRef, useMemo } = React;
 const API = window.__STUDIO_CONFIG__.prefix + '/api';
 const CONFIG = window.__STUDIO_CONFIG__;
 
+// ─── Auth State ─────────────────────────────────────────────
+let authToken = sessionStorage.getItem('gorm_studio_auth') || null;
+let onAuthRequired = null;
+
 // ─── API Helper ─────────────────────────────────────────────
 async function api(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (authToken) headers['Authorization'] = 'Basic ' + authToken;
   const res = await fetch(API + path, {
-    headers: { 'Content-Type': 'application/json' },
     ...opts,
+    headers: { ...headers, ...(opts.headers || {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
+  if (res.status === 401) {
+    authToken = null;
+    sessionStorage.removeItem('gorm_studio_auth');
+    if (onAuthRequired) onAuthRequired();
+    throw new Error('Authentication required');
+  }
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Request failed');
   return data;
+}
+
+// ─── Authenticated File Download ────────────────────────────
+async function downloadFile(url) {
+  const headers = {};
+  if (authToken) headers['Authorization'] = 'Basic ' + authToken;
+  const res = await fetch(url, { headers });
+  if (res.status === 401) {
+    authToken = null;
+    sessionStorage.removeItem('gorm_studio_auth');
+    if (onAuthRequired) onAuthRequired();
+    throw new Error('Authentication required');
+  }
+  if (!res.ok) {
+    let msg = 'Download failed';
+    try { const d = await res.json(); msg = d.error || msg; } catch(e) {}
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition');
+  let filename = 'download';
+  if (disposition) {
+    const match = disposition.match(/filename[*]?=(?:UTF-8''|"?)(.+?)(?:"|$)/i);
+    if (match) filename = decodeURIComponent(match[1]);
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
 }
 
 // ─── Icons ──────────────────────────────────────────────────
@@ -352,6 +417,33 @@ function Modal({ title, onClose, children, footer, wide }) {
         </div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-footer">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Confirm Modal ───────────────────────────────────────────
+function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel }) {
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onCancel]);
+
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" style={{width:420}} onClick={e => e.stopPropagation()}>
+        <div className="modal-body" style={{padding:'32px 24px'}}>
+          <div className="confirm-icon">
+            <Icons.Trash />
+          </div>
+          <div className="confirm-title">{title}</div>
+          <div className="confirm-message">{message}</div>
+          <div className="confirm-actions">
+            <button className="btn btn-default" onClick={onCancel}>Cancel</button>
+            <button className="btn btn-danger-solid" onClick={onConfirm}>{confirmLabel || 'Delete'}</button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -445,7 +537,7 @@ function ExportButton({ table }) {
   }, []);
 
   const doExport = (format) => {
-    window.open(API + '/tables/' + encodeURIComponent(table) + '/export?format=' + format, '_blank');
+    downloadFile(API + '/tables/' + encodeURIComponent(table) + '/export?format=' + format).catch(() => {});
     setOpen(false);
   };
 
@@ -482,6 +574,7 @@ function DataTable({ table, schema, onNavigate, showToast, breadcrumbs }) {
   const [colWidths, setColWidths] = useState({});
   const [inlineEdit, setInlineEdit] = useState(null); // {row, col, value}
   const [viewerModal, setViewerModal] = useState(null); // {value, col}
+  const [confirmModal, setConfirmModal] = useState(null); // {title, message, onConfirm}
   const [showDeleted, setShowDeleted] = useState(false);
   const [hasSoftDelete, setHasSoftDelete] = useState(false);
 
@@ -517,23 +610,36 @@ function DataTable({ table, schema, onNavigate, showToast, breadcrumbs }) {
     else { setSortBy(col); setSortOrder('asc'); }
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this record?')) return;
-    try {
-      await api('/tables/' + encodeURIComponent(table) + '/rows/' + id, { method: 'DELETE' });
-      showToast('success', 'Record deleted');
-      fetchRows();
-    } catch (err) { showToast('error', err.message); }
+  const handleDelete = (id) => {
+    setConfirmModal({
+      title: 'Delete Record',
+      message: 'Are you sure you want to delete this record? This action cannot be undone.',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        try {
+          await api('/tables/' + encodeURIComponent(table) + '/rows/' + id, { method: 'DELETE' });
+          showToast('success', 'Record deleted');
+          fetchRows();
+        } catch (err) { showToast('error', err.message); }
+      }
+    });
   };
 
-  const handleBulkDelete = async () => {
-    if (!confirm('Delete ' + selected.size + ' records?')) return;
-    try {
-      await api('/tables/' + encodeURIComponent(table) + '/rows/bulk-delete', { method: 'POST', body: { ids: Array.from(selected) } });
-      showToast('success', selected.size + ' records deleted');
-      setSelected(new Set());
-      fetchRows();
-    } catch (err) { showToast('error', err.message); }
+  const handleBulkDelete = () => {
+    const count = selected.size;
+    setConfirmModal({
+      title: 'Delete ' + count + ' Records',
+      message: 'Are you sure you want to delete ' + count + ' selected records? This action cannot be undone.',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        try {
+          await api('/tables/' + encodeURIComponent(table) + '/rows/bulk-delete', { method: 'POST', body: { ids: Array.from(selected) } });
+          showToast('success', count + ' records deleted');
+          setSelected(new Set());
+          fetchRows();
+        } catch (err) { showToast('error', err.message); }
+      }
+    });
   };
 
   const handleSave = async () => {
@@ -789,6 +895,16 @@ function DataTable({ table, schema, onNavigate, showToast, breadcrumbs }) {
       {viewerModal && (
         <JsonViewerModal value={viewerModal.value} columnName={viewerModal.col} onClose={() => setViewerModal(null)} />
       )}
+
+      {/* Confirm Delete Modal */}
+      {confirmModal && (
+        <ConfirmModal
+          title={confirmModal.title}
+          message={confirmModal.message}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={() => setConfirmModal(null)}
+        />
+      )}
     </>
   );
 }
@@ -953,7 +1069,9 @@ function FileUploader({ endpoint, accept, showToast, onSuccess, extraFields }) {
       Object.entries(extraFields).forEach(([k,v]) => { if (v) formData.append(k, v); });
     }
     try {
-      const res = await fetch(CONFIG.prefix + '/api' + endpoint, { method: 'POST', body: formData });
+      const uploadHeaders = {};
+      if (authToken) uploadHeaders['Authorization'] = 'Basic ' + authToken;
+      const res = await fetch(CONFIG.prefix + '/api' + endpoint, { method: 'POST', body: formData, headers: uploadHeaders });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload failed');
       if (onSuccess) onSuccess(data);
@@ -1006,7 +1124,7 @@ function ToolsPanel({ schema, showToast, onRefresh }) {
       React.createElement('div', {style:{display:'flex',gap:8,flexWrap:'wrap'}},
         exportFormats.map(fmt =>
           React.createElement('button', {key:fmt, className:'btn btn-default', style:{fontSize:12,padding:'6px 12px'},
-            onClick:() => window.open(API+'/export/schema?format='+fmt, '_blank')
+            onClick:() => downloadFile(API+'/export/schema?format='+fmt).catch(e => showToast('error', e.message))
           }, fmt.toUpperCase())
         )
       )
@@ -1016,7 +1134,7 @@ function ToolsPanel({ schema, showToast, onRefresh }) {
       React.createElement('div', {style:{display:'flex',gap:8,flexWrap:'wrap'}},
         dataFormats.map(fmt =>
           React.createElement('button', {key:fmt, className:'btn btn-default', style:{fontSize:12,padding:'6px 12px'},
-            onClick:() => window.open(API+'/export/data?format='+fmt, '_blank')
+            onClick:() => downloadFile(API+'/export/data?format='+fmt).catch(e => showToast('error', e.message))
           }, fmt.toUpperCase())
         )
       )
@@ -1024,7 +1142,7 @@ function ToolsPanel({ schema, showToast, onRefresh }) {
 
     React.createElement(ToolCard, {title:'Go Models', description:'Generate Go struct code from database schema'},
       React.createElement('button', {className:'btn btn-primary', style:{fontSize:12,padding:'6px 16px'},
-        onClick:() => window.open(API+'/export/models', '_blank')
+        onClick:() => downloadFile(API+'/export/models').catch(e => showToast('error', e.message))
       }, 'Download models.go')
     ),
 
@@ -1088,6 +1206,70 @@ function ToolsPanel({ schema, showToast, onRefresh }) {
   );
 }
 
+// ─── Login Page ──────────────────────────────────────────────
+function LoginPage({ onLogin }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem('gorm_studio_theme') || 'dark');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('gorm_studio_theme', theme);
+  }, [theme]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!username || !password) { setError('Please enter both username and password'); return; }
+    setLoading(true);
+    setError('');
+    const token = btoa(username + ':' + password);
+    try {
+      const res = await fetch(API + '/schema', {
+        headers: { 'Authorization': 'Basic ' + token, 'Content-Type': 'application/json' }
+      });
+      if (res.status === 401) { setError('Invalid username or password'); setLoading(false); return; }
+      if (!res.ok) { setError('Connection failed'); setLoading(false); return; }
+      onLogin(token);
+    } catch (err) {
+      setError('Failed to connect to server');
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="login-page">
+      <div className="login-card">
+        <div className="login-logo">
+          <Icons.Database />
+          <span>GORM <span className="accent">Studio</span></span>
+        </div>
+        <p className="login-subtitle">Sign in to access your database</p>
+        <div style={{position:'absolute',top:16,right:16}}>
+          <button className="theme-toggle" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Toggle theme">
+            {theme === 'dark' ? <Icons.Sun /> : <Icons.Moon />}
+          </button>
+        </div>
+        {error && <div className="login-error"><Icons.X />{error}</div>}
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label className="form-label">Username</label>
+            <input className="form-input" type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Enter username" autoFocus autoComplete="username" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Password</label>
+            <input className="form-input" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter password" autoComplete="current-password" />
+          </div>
+          <button className="login-btn" type="submit" disabled={loading}>
+            {loading ? 'Signing in...' : 'Sign In'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── App ────────────────────────────────────────────────────
 function App() {
   const [schema, setSchema] = useState(null);
@@ -1098,8 +1280,15 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState(() => localStorage.getItem('gorm_studio_theme') || 'dark');
   const [breadcrumbs, setBreadcrumbs] = useState([]);
+  const [needsAuth, setNeedsAuth] = useState(false);
 
   const showToast = (type, message) => setToast({ type, message });
+
+  // Register auth callback
+  useEffect(() => {
+    onAuthRequired = () => setNeedsAuth(true);
+    return () => { onAuthRequired = null; };
+  }, []);
 
   // Apply theme
   useEffect(() => {
@@ -1107,19 +1296,35 @@ function App() {
     localStorage.setItem('gorm_studio_theme', theme);
   }, [theme]);
 
-  useEffect(() => {
+  const loadSchema = useCallback(() => {
+    setLoading(true);
     api('/schema').then(data => {
       setSchema(data);
       if (data.tables?.length > 0) {
         setActiveTable(data.tables[0].name);
         setBreadcrumbs([{ table: data.tables[0].name }]);
       }
+      setNeedsAuth(false);
       setLoading(false);
     }).catch(err => {
+      if (err.message === 'Authentication required') {
+        setNeedsAuth(true);
+        setLoading(false);
+        return;
+      }
       showToast('error', 'Failed to load schema: ' + err.message);
       setLoading(false);
     });
   }, []);
+
+  useEffect(() => { loadSchema(); }, [loadSchema]);
+
+  const handleLogin = (token) => {
+    authToken = token;
+    sessionStorage.setItem('gorm_studio_auth', token);
+    setNeedsAuth(false);
+    loadSchema();
+  };
 
   const refreshSchema = async () => {
     try {
@@ -1165,6 +1370,15 @@ function App() {
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [view]);
+
+  if (needsAuth) {
+    return (
+      <>
+        <LoginPage onLogin={handleLogin} />
+        <Toast toast={toast} onClose={() => setToast(null)} />
+      </>
+    );
+  }
 
   if (loading) {
     return <div className="loading-center"><div className="spinner" style={{width:32,height:32,borderWidth:3}}></div><span>Loading schema...</span></div>;

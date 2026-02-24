@@ -20,6 +20,8 @@ A **Prisma Studio-like** visual database browser and editor for Go applications 
 - **Schema Import** — Import schemas from SQL, JSON, YAML, or DBML files to create tables
 - **Go Code Generation** — Generate Go model structs from your database schema with proper GORM tags
 - **Go Models Import** — Upload a `.go` file with struct definitions to create database tables
+- **Custom Login UI** — Beautiful themed login page replaces the browser's native auth popup
+- **Confirm Delete Modal** — Styled confirmation dialog for record deletion (replaces browser `confirm()`)
 - **Authentication** — Built-in `AuthMiddleware` support for protecting routes
 - **Security** — DDL blocking, SQL injection prevention, CSV formula injection protection, SRI hashes
 - **Zero Config** — Just pass your `*gorm.DB` and model list — one line to mount
@@ -195,8 +197,10 @@ studio.Mount(router, db, models, studio.Config{
 
 ### Authentication
 
+When `AuthMiddleware` is configured, GORM Studio shows a custom login page instead of the browser's native auth popup. The React UI handles authentication gracefully — on 401, users see a themed login form with username/password fields. Credentials are stored in session storage for the duration of the browser session.
+
 ```go
-// Protect with basic auth
+// Protect with basic auth — users see a custom login page
 studio.Mount(router, db, models, studio.Config{
     AuthMiddleware: gin.BasicAuth(gin.Accounts{
         "admin": "secret-password",
@@ -355,7 +359,7 @@ Upload a `.go` file with struct definitions to automatically create database tab
 
 GORM Studio includes multiple security layers:
 
-- **Authentication** — Built-in `AuthMiddleware` support with startup warnings when unprotected
+- **Authentication** — Built-in `AuthMiddleware` support with custom login UI and startup warnings when unprotected
 - **Table Validation** — All table names validated against registered models
 - **Column Validation** — Only known columns accepted for filtering and sorting
 - **Parameterized Queries** — Uses GORM's built-in query parameterization

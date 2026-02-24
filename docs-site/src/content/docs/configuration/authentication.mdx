@@ -3,7 +3,18 @@ title: Authentication
 description: Protect your GORM Studio instance with authentication middleware using Basic Auth, JWT tokens, or any custom Gin middleware.
 ---
 
-The `AuthMiddleware` field on `studio.Config` accepts any `gin.HandlerFunc`, giving you full control over how access to the studio is protected. When set, this middleware runs before every studio route.
+The `AuthMiddleware` field on `studio.Config` accepts any `gin.HandlerFunc`, giving you full control over how access to the studio is protected. When set, this middleware runs before every studio API route.
+
+## Custom Login UI
+
+When authentication is enabled, GORM Studio displays a **custom-themed login page** instead of the browser's native HTTP Basic Auth popup. The login page:
+
+- Matches the studio's dark/light theme with the same accent colors and typography
+- Shows clear error messages for invalid credentials
+- Includes a theme toggle so users can switch between dark and light mode before signing in
+- Stores credentials in the browser's session storage (cleared when the tab closes)
+
+The login page appears automatically when any API call returns a `401 Unauthorized` response. If the server has no auth middleware configured, the login page is never shown and the studio loads directly.
 
 ## Why Authentication Matters
 
@@ -11,7 +22,7 @@ GORM Studio provides direct access to your database -- browsing tables, editing 
 
 ## Basic Auth
 
-The simplest approach uses Gin's built-in `gin.BasicAuth` middleware. The browser will prompt for credentials automatically.
+The simplest approach uses Gin's built-in `gin.BasicAuth` middleware. Users will see the custom login form when they visit the studio.
 
 ```go
 studio.Mount(router, db, models, studio.Config{

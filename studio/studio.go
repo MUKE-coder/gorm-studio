@@ -21,7 +21,8 @@ type Config struct {
 	// CORSAllowOrigins is a list of allowed origins for CORS. If empty, CORS middleware is not added.
 	CORSAllowOrigins []string
 	// AuthMiddleware is an optional Gin middleware function for authentication.
-	// When set, all studio routes (UI and API) are protected by this middleware.
+	// When set, all studio API routes are protected by this middleware.
+	// The frontend HTML is served without auth; the React UI shows a login form on 401.
 	AuthMiddleware gin.HandlerFunc
 }
 
@@ -73,20 +74,20 @@ func Mount(router *gin.Engine, db *gorm.DB, models []interface{}, configs ...Con
 		}))
 	}
 
-	// Add auth middleware if configured
-	if cfg.AuthMiddleware != nil {
-		group.Use(cfg.AuthMiddleware)
-	}
+	// Serve frontend without auth (React app handles login UI)
+	group.GET("", func(c *gin.Context) {
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.String(http.StatusOK, GetFrontendHTML(cfg))
+	})
 
 	{
-		// Serve frontend
-		group.GET("", func(c *gin.Context) {
-			c.Header("Content-Type", "text/html; charset=utf-8")
-			c.String(http.StatusOK, GetFrontendHTML(cfg))
-		})
-
-		// API routes
+		// API routes - protected by auth middleware
 		api := group.Group("/api")
+
+		if cfg.AuthMiddleware != nil {
+			api.Use(cfg.AuthMiddleware)
+		}
+
 		{
 			// Schema
 			api.GET("/schema", handlers.GetSchema)

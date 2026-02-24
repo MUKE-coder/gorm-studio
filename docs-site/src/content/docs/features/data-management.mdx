@@ -71,7 +71,14 @@ curl -X PUT http://localhost:8080/studio/api/tables/users/rows/1 \
 
 ## Deleting Records
 
-Delete a single record by ID:
+When deleting records through the web UI, GORM Studio shows a **confirmation modal** instead of the browser's native `confirm()` popup. The modal:
+
+- Displays a clear warning with the number of records to be deleted
+- States that the action cannot be undone
+- Provides Cancel and Delete buttons styled with the studio theme
+- Supports keyboard interaction (Escape to cancel)
+
+Delete a single record by ID via the API:
 
 ```bash
 # Delete a record
@@ -80,7 +87,9 @@ curl -X DELETE http://localhost:8080/studio/api/tables/users/rows/1
 
 ### Bulk Delete
 
-Delete multiple records at once by posting an array of IDs:
+Select multiple rows using the checkboxes in the data grid, then click the Delete button. The confirmation modal will show the count of selected records.
+
+Via the API, delete multiple records at once by posting an array of IDs:
 
 ```bash
 # Bulk delete
