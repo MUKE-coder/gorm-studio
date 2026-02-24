@@ -10,11 +10,21 @@ export function Hero() {
     <section className="relative overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-b from-accent/5 to-transparent pointer-events-none" />
       <div className="max-w-4xl mx-auto px-6 pt-24 pb-20 text-center relative">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent-muted text-accent text-sm font-medium mb-6">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-          </svg>
-          Open Source Database Browser for Go
+        <div className="inline-flex items-center gap-3 mb-6">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent-muted text-accent text-sm font-medium">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+            </svg>
+            Open Source Database Browser for Go
+          </div>
+          <a
+            href="https://github.com/MUKE-coder/gorm-studio/releases/tag/v1.0.0"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center px-2.5 py-1 rounded-full border border-border bg-surface-secondary text-text-secondary text-xs font-mono hover:text-text-primary hover:border-accent transition-colors"
+          >
+            v1.0.0
+          </a>
         </div>
         <h1 className="text-5xl md:text-6xl font-bold text-text-primary mb-6 leading-tight">
           Visual Database Browser{" "}

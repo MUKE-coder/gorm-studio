@@ -15,6 +15,14 @@ export function Navbar() {
         <nav className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-8">
             <Logo />
+            <a
+              href="https://github.com/MUKE-coder/gorm-studio/releases/tag/v1.0.0"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md bg-accent-muted text-accent text-xs font-mono hover:bg-accent/20 transition-colors"
+            >
+              v1.0.0
+            </a>
             <div className="hidden md:flex items-center gap-6">
               <Link
                 href="/docs/getting-started/introduction"
