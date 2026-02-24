@@ -18,12 +18,12 @@ export function Hero() {
             Open Source Database Browser for Go
           </div>
           <a
-            href="https://github.com/MUKE-coder/gorm-studio/releases/tag/v1.0.0"
+            href="https://github.com/MUKE-coder/gorm-studio/releases/tag/v1.0.1"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center px-2.5 py-1 rounded-full border border-border bg-surface-secondary text-text-secondary text-xs font-mono hover:text-text-primary hover:border-accent transition-colors"
           >
-            v1.0.0
+            v1.0.1
           </a>
         </div>
         <h1 className="text-5xl md:text-6xl font-bold text-text-primary mb-6 leading-tight">

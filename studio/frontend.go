@@ -321,6 +321,7 @@ async function api(path, opts = {}) {
   if (authToken) headers['Authorization'] = 'Basic ' + authToken;
   const res = await fetch(API + path, {
     ...opts,
+    credentials: 'omit',
     headers: { ...headers, ...(opts.headers || {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
@@ -339,7 +340,7 @@ async function api(path, opts = {}) {
 async function downloadFile(url) {
   const headers = {};
   if (authToken) headers['Authorization'] = 'Basic ' + authToken;
-  const res = await fetch(url, { headers });
+  const res = await fetch(url, { credentials: 'omit', headers });
   if (res.status === 401) {
     authToken = null;
     sessionStorage.removeItem('gorm_studio_auth');
@@ -1071,7 +1072,7 @@ function FileUploader({ endpoint, accept, showToast, onSuccess, extraFields }) {
     try {
       const uploadHeaders = {};
       if (authToken) uploadHeaders['Authorization'] = 'Basic ' + authToken;
-      const res = await fetch(CONFIG.prefix + '/api' + endpoint, { method: 'POST', body: formData, headers: uploadHeaders });
+      const res = await fetch(CONFIG.prefix + '/api' + endpoint, { method: 'POST', credentials: 'omit', body: formData, headers: uploadHeaders });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload failed');
       if (onSuccess) onSuccess(data);
@@ -1227,6 +1228,7 @@ function LoginPage({ onLogin }) {
     const token = btoa(username + ':' + password);
     try {
       const res = await fetch(API + '/schema', {
+        credentials: 'omit',
         headers: { 'Authorization': 'Basic ' + token, 'Content-Type': 'application/json' }
       });
       if (res.status === 401) { setError('Invalid username or password'); setLoading(false); return; }
