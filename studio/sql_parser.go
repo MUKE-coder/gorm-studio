@@ -202,40 +202,77 @@ func detectDialect(sql string) string {
 
 // --- helpers ---
 
+// removeComments strips SQL line (--) and block (/* */) comments.
+// It is quote-aware: comment markers that appear inside a string or quoted
+// identifier ('...', "...", `...`) are left untouched, and doubled quotes
+// ('') are treated as an in-string escape rather than a closing quote.
 func removeComments(sql string) string {
-	// Remove single-line comments
-	lines := strings.Split(sql, "\n")
-	var cleaned []string
-	for _, line := range lines {
-		if idx := strings.Index(line, "--"); idx >= 0 {
-			line = line[:idx]
+	var b strings.Builder
+	var quote byte // 0 == not inside a quote
+	for i := 0; i < len(sql); i++ {
+		c := sql[i]
+		if quote != 0 {
+			b.WriteByte(c)
+			if c == quote {
+				// Doubled quote is an escape, not a terminator.
+				if i+1 < len(sql) && sql[i+1] == quote {
+					b.WriteByte(sql[i+1])
+					i++
+					continue
+				}
+				quote = 0
+			}
+			continue
 		}
-		cleaned = append(cleaned, line)
+		switch {
+		case c == '\'' || c == '"' || c == '`':
+			quote = c
+			b.WriteByte(c)
+		case c == '-' && i+1 < len(sql) && sql[i+1] == '-':
+			// Line comment: skip to end of line (keep the newline).
+			for i < len(sql) && sql[i] != '\n' {
+				i++
+			}
+			if i < len(sql) {
+				b.WriteByte('\n')
+			}
+		case c == '/' && i+1 < len(sql) && sql[i+1] == '*':
+			// Block comment: skip to closing */.
+			i += 2
+			for i+1 < len(sql) && !(sql[i] == '*' && sql[i+1] == '/') {
+				i++
+			}
+			i++ // land on the '/' so the loop's i++ moves past it
+		default:
+			b.WriteByte(c)
+		}
 	}
-	result := strings.Join(cleaned, "\n")
-
-	// Remove block comments
-	for {
-		start := strings.Index(result, "/*")
-		if start < 0 {
-			break
-		}
-		end := strings.Index(result[start:], "*/")
-		if end < 0 {
-			result = result[:start]
-			break
-		}
-		result = result[:start] + result[start+end+2:]
-	}
-	return result
+	return b.String()
 }
 
+// splitStatements splits SQL into individual statements on top-level
+// semicolons. It is quote- and paren-aware: semicolons inside string
+// literals, quoted identifiers, or parentheses do not split a statement.
 func splitStatements(sql string) []string {
 	var stmts []string
 	depth := 0
 	start := 0
-	for i, ch := range sql {
-		switch ch {
+	var quote byte
+	for i := 0; i < len(sql); i++ {
+		c := sql[i]
+		if quote != 0 {
+			if c == quote {
+				if i+1 < len(sql) && sql[i+1] == quote {
+					i++ // skip escaped quote
+					continue
+				}
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"', '`':
+			quote = c
 		case '(':
 			depth++
 		case ')':

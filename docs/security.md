@@ -38,7 +38,7 @@ All user-provided values (filter values, search terms, row IDs) are passed as pa
 
 ### Read-Only Mode
 
-Setting `ReadOnly: true` in the config completely disables all mutation endpoints at the route registration level — they are never registered with Gin, so they return 404:
+Setting `ReadOnly: true` in the config completely disables all mutation endpoints at the route registration level — they are never registered with Gin, so they return 404. The SQL editor, which stays registered, also enforces read-only mode: only genuine read statements (`SELECT`/`EXPLAIN`/`SHOW`/`DESCRIBE` and read-only `PRAGMA`) are allowed, and any write — including `PRAGMA x = y` or a statement mislabeled as a read — returns 403:
 
 ```go
 studio.Mount(router, db, models, studio.Config{
@@ -187,13 +187,24 @@ location /studio {
 
 ### SQL Editor
 
-When the SQL editor is enabled, users can execute **any** SQL query including:
-- `DROP TABLE`
-- `DELETE FROM` (without WHERE)
-- `ALTER TABLE`
-- Schema modifications
+The SQL editor accepts a **single** statement per request. Before execution the
+query has its comments stripped and is checked against a keyword blocklist, so
+the following are rejected (403) regardless of comments, leading whitespace, or
+letter case:
 
-Always disable the SQL editor in environments where this is unacceptable.
+- `DROP`, `ALTER`, `TRUNCATE`, `CREATE`
+- `ATTACH`, `DETACH`
+- `GRANT`, `REVOKE`
+- `VACUUM`, `REINDEX` (e.g. `VACUUM INTO '<path>'` would write an arbitrary file)
+
+Multiple statements separated by `;` are rejected (400) so a benign-looking
+`SELECT` cannot smuggle a trailing write.
+
+The editor can still run non-DDL writes (`INSERT`/`UPDATE`/`DELETE`) when
+`ReadOnly` is not set — including a `DELETE`/`UPDATE` without a `WHERE` clause.
+Disable the SQL editor (`DisableSQL: true`) in environments where arbitrary
+DML is unacceptable, and always combine it with `ReadOnly: true` when browsing
+production data.
 
 ### Raw SQL Injection
 

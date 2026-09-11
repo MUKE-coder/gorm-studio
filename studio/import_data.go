@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/xuri/excelize/v2"
+	"gorm.io/gorm"
 )
 
 // ImportData handles POST /api/import/data
@@ -189,17 +190,29 @@ func (h *Handlers) importDataCSV(data []byte, tableName string) (int64, error) {
 }
 
 func (h *Handlers) importDataSQL(content string) (int64, []string, error) {
-	stmts := splitStatements(content)
+	// Strip comments and split with quote/paren awareness so a value like
+	// '(' or an embedded ';' can't smuggle a second statement past the
+	// INSERT-only check below.
+	rawStmts := splitStatements(removeComments(content))
 	tablesSet := make(map[string]bool)
-	var count int64
 
-	for _, stmt := range stmts {
+	// Validate every statement is an INSERT *before* executing any of them, so a
+	// non-INSERT statement can never take effect (fail closed). Without this a
+	// leading INSERT would commit before a later DELETE was rejected.
+	var stmts []string
+	for _, stmt := range rawStmts {
 		stmt = strings.TrimSpace(stmt)
-		upper := strings.ToUpper(stmt)
-
-		// Only allow INSERT statements for safety
-		if !strings.HasPrefix(upper, "INSERT") {
+		if stmt == "" {
 			continue
+		}
+		upper := strings.ToUpper(stmt)
+		if !strings.HasPrefix(upper, "INSERT") {
+			fields := strings.Fields(upper)
+			kw := "statement"
+			if len(fields) > 0 {
+				kw = fields[0]
+			}
+			return 0, nil, fmt.Errorf("only INSERT statements are allowed in SQL data imports; found %s", kw)
 		}
 
 		// Extract table name from INSERT INTO
@@ -209,11 +222,22 @@ func (h *Handlers) importDataSQL(content string) (int64, []string, error) {
 		if len(parts) >= 3 && parts[0] == "INSERT" && parts[1] == "INTO" {
 			tablesSet[strings.ToLower(parts[2])] = true
 		}
+		stmts = append(stmts, stmt)
+	}
 
-		if err := h.DB.Exec(stmt).Error; err != nil {
-			continue
+	// Execute inside a transaction so a mid-batch failure rolls back cleanly.
+	var count int64
+	err := h.DB.Transaction(func(tx *gorm.DB) error {
+		for _, stmt := range stmts {
+			if err := tx.Exec(stmt).Error; err != nil {
+				return fmt.Errorf("executing INSERT: %w", err)
+			}
+			count++
 		}
-		count++
+		return nil
+	})
+	if err != nil {
+		return 0, nil, err
 	}
 
 	var tables []string

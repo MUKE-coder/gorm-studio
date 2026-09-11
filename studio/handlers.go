@@ -212,7 +212,11 @@ func (h *Handlers) GetRow(c *gin.Context) {
 	}
 
 	query := h.DB.Table(tableName)
-	query = applyCompositePK(query, h, pks, id)
+	query, err := applyCompositePK(query, h, pks, id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	var row map[string]interface{}
 	result := query.Take(&row)
@@ -279,7 +283,11 @@ func (h *Handlers) UpdateRow(c *gin.Context) {
 	filtered := filterValidColumns(h.Schema, tableName, data)
 
 	query := h.DB.Table(tableName)
-	query = applyCompositePK(query, h, pks, id)
+	query, err := applyCompositePK(query, h, pks, id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	result := query.Updates(filtered)
 	if result.Error != nil {
@@ -312,7 +320,11 @@ func (h *Handlers) DeleteRow(c *gin.Context) {
 	}
 
 	query := h.DB.Table(tableName)
-	query = applyCompositePK(query, h, pks, id)
+	query, err := applyCompositePK(query, h, pks, id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	result := query.Delete(nil)
 	if result.Error != nil {
@@ -337,11 +349,18 @@ func (h *Handlers) BulkDelete(c *gin.Context) {
 		return
 	}
 
-	pk := getPrimaryKey(h.Schema, tableName)
-	if pk == "" {
+	pks := getPrimaryKeys(h.Schema, tableName)
+	if len(pks) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": (&ErrNoPrimaryKey{Table: tableName}).Error()})
 		return
 	}
+	// A single `WHERE pk IN (?)` cannot express composite keys; filtering on the
+	// first column alone would delete unintended rows, so refuse.
+	if len(pks) > 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bulk delete is not supported for tables with composite primary keys"})
+		return
+	}
+	pk := pks[0]
 
 	var body struct {
 		IDs []interface{} `json:"ids"`
@@ -431,6 +450,77 @@ func (h *Handlers) GetRelatedRows(c *gin.Context) {
 	})
 }
 
+// blockedSQLKeywords are leading keywords that are never allowed through the
+// SQL editor, regardless of ReadOnly mode. VACUUM/REINDEX are included because
+// e.g. `VACUUM INTO '<path>'` writes an arbitrary file (data exfiltration).
+var blockedSQLKeywords = map[string]bool{
+	"DROP": true, "ALTER": true, "TRUNCATE": true, "CREATE": true,
+	"ATTACH": true, "DETACH": true, "GRANT": true, "REVOKE": true,
+	"VACUUM": true, "REINDEX": true,
+}
+
+// containsSQLWord reports whether upperSQL contains the given uppercase keyword
+// as a whole word (used to catch DML smuggled inside a CTE).
+func containsSQLWord(upperSQL, word string) bool {
+	for i := 0; ; {
+		idx := strings.Index(upperSQL[i:], word)
+		if idx < 0 {
+			return false
+		}
+		idx += i
+		before := idx == 0 || !isWordByte(upperSQL[idx-1])
+		afterPos := idx + len(word)
+		after := afterPos >= len(upperSQL) || !isWordByte(upperSQL[afterPos])
+		if before && after {
+			return true
+		}
+		i = idx + len(word)
+	}
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9')
+}
+
+// classifySQL cleans a raw SQL editor query and classifies it. It strips
+// comments, rejects anything that is not exactly one statement, and reports
+// whether the single statement is blocked or is a read.
+func classifySQL(raw string) (stmt string, blocked bool, isRead bool, err error) {
+	cleaned := strings.TrimSpace(removeComments(raw))
+	if cleaned == "" {
+		return "", false, false, fmt.Errorf("empty query")
+	}
+	stmts := splitStatements(cleaned)
+	if len(stmts) != 1 {
+		return "", false, false, fmt.Errorf("only a single SQL statement is allowed")
+	}
+	stmt = strings.TrimSpace(stmts[0])
+	upper := strings.ToUpper(stmt)
+	fields := strings.Fields(upper)
+	if len(fields) == 0 {
+		return "", false, false, fmt.Errorf("empty query")
+	}
+	first := fields[0]
+	if blockedSQLKeywords[first] {
+		return stmt, true, false, nil
+	}
+
+	switch first {
+	case "SELECT", "EXPLAIN", "SHOW", "DESCRIBE", "DESC":
+		isRead = true
+	case "PRAGMA":
+		// `PRAGMA x = y` (or `PRAGMA x(y)`) mutates state — treat as a write.
+		isRead = !strings.ContainsAny(stmt, "=(")
+	case "WITH":
+		// Read CTE unless it smuggles DML.
+		isRead = !(containsSQLWord(upper, "INSERT") || containsSQLWord(upper, "UPDATE") ||
+			containsSQLWord(upper, "DELETE") || containsSQLWord(upper, "REPLACE"))
+	default:
+		isRead = false
+	}
+	return stmt, false, isRead, nil
+}
+
 // ExecuteSQL runs a raw SQL query
 func (h *Handlers) ExecuteSQL(c *gin.Context) {
 	var body struct {
@@ -441,24 +531,21 @@ func (h *Handlers) ExecuteSQL(c *gin.Context) {
 		return
 	}
 
-	query := strings.TrimSpace(body.Query)
-
-	// Block DDL and dangerous statements
-	upperQuery := strings.ToUpper(query)
-	blockedPrefixes := []string{"DROP", "ALTER", "TRUNCATE", "CREATE", "ATTACH", "DETACH", "GRANT", "REVOKE"}
-	for _, prefix := range blockedPrefixes {
-		if strings.HasPrefix(upperQuery, prefix) {
-			c.JSON(http.StatusForbidden, gin.H{"error": fmt.Sprintf("%s statements are not allowed", prefix)})
-			return
-		}
+	query, blocked, isRead, err := classifySQL(body.Query)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if blocked {
+		c.JSON(http.StatusForbidden, gin.H{"error": "this statement type is not allowed"})
+		return
 	}
 
-	// Determine if it's a read or write query
-	isRead := strings.HasPrefix(upperQuery, "SELECT") ||
-		strings.HasPrefix(upperQuery, "EXPLAIN") ||
-		strings.HasPrefix(upperQuery, "PRAGMA") ||
-		strings.HasPrefix(upperQuery, "SHOW") ||
-		strings.HasPrefix(upperQuery, "DESCRIBE")
+	// In read-only mode, only genuine read statements are permitted.
+	if h.ReadOnly && !isRead {
+		c.JSON(http.StatusForbidden, gin.H{"error": "write queries are not allowed in read-only mode"})
+		return
+	}
 
 	if isRead {
 		var rows []map[string]interface{}
@@ -483,11 +570,6 @@ func (h *Handlers) ExecuteSQL(c *gin.Context) {
 			"type":          "read",
 		})
 	} else {
-		if h.ReadOnly {
-			c.JSON(http.StatusForbidden, gin.H{"error": "write queries are not allowed in read-only mode"})
-			return
-		}
-
 		result := h.DB.Exec(query)
 		if result.Error != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": result.Error.Error()})
@@ -647,20 +729,24 @@ func getPrimaryKeys(schema *SchemaInfo, tableName string) []string {
 
 // applyCompositePK builds a WHERE clause for composite primary keys.
 // For single PKs: id is used directly.
-// For composite PKs: id is expected as "val1,val2" matching the PK order.
-func applyCompositePK(query *gorm.DB, h *Handlers, pks []string, id string) *gorm.DB {
+// For composite PKs: id is expected as "val1,val2" matching the PK order, and
+// every PK column must be supplied. Supplying too few values would otherwise
+// constrain only the leading columns and match (and delete/update) many rows,
+// so a mismatch is a hard error.
+func applyCompositePK(query *gorm.DB, h *Handlers, pks []string, id string) (*gorm.DB, error) {
 	if len(pks) == 1 {
-		return query.Where(h.qi(pks[0])+" = ?", id)
+		return query.Where(h.qi(pks[0])+" = ?", id), nil
 	}
 
-	// Composite PK: split id by comma
-	parts := strings.SplitN(id, ",", len(pks))
-	for i, pk := range pks {
-		if i < len(parts) {
-			query = query.Where(h.qi(pk)+" = ?", parts[i])
-		}
+	parts := strings.Split(id, ",")
+	if len(parts) != len(pks) {
+		return nil, fmt.Errorf("composite primary key requires %d comma-separated values (%s), got %d",
+			len(pks), strings.Join(pks, ","), len(parts))
 	}
-	return query
+	for i, pk := range pks {
+		query = query.Where(h.qi(pk)+" = ?", strings.TrimSpace(parts[i]))
+	}
+	return query, nil
 }
 
 func filterValidColumns(schema *SchemaInfo, tableName string, data map[string]interface{}) map[string]interface{} {
