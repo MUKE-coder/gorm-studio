@@ -99,7 +99,7 @@ func (h *Handlers) exportAllDataJSON(c *gin.Context) {
 		}
 
 		if !firstTable {
-			w.WriteString(",")
+			_, _ = w.WriteString(",")
 		}
 		firstTable = false
 		fmt.Fprintf(w, `%s:{"columns":%s,"rows":[`, jsonValue(table.Name), jsonValue(colNames))
@@ -108,17 +108,17 @@ func (h *Handlers) exportAllDataJSON(c *gin.Context) {
 		firstRow := true
 		h.streamRows(c, table.Name, func(row map[string]interface{}) {
 			if !firstRow {
-				w.WriteString(",")
+				_, _ = w.WriteString(",")
 			}
 			firstRow = false
-			w.WriteString(jsonValue(row))
+			_, _ = w.WriteString(jsonValue(row))
 			rowCount++
 		})
 
 		fmt.Fprintf(w, `],"row_count":%d}`, rowCount)
 	}
 
-	w.WriteString("}}")
+	_, _ = w.WriteString("}}")
 }
 
 func (h *Handlers) exportAllDataCSV(c *gin.Context) {
@@ -140,7 +140,7 @@ func (h *Handlers) exportAllDataCSV(c *gin.Context) {
 		for i, col := range table.Columns {
 			colNames[i] = col.Name
 		}
-		csvWriter.Write(colNames)
+		_ = csvWriter.Write(colNames)
 
 		// Data rows, streamed in batches
 		cols := table.Columns
@@ -149,7 +149,7 @@ func (h *Handlers) exportAllDataCSV(c *gin.Context) {
 			for i, col := range cols {
 				record[i] = csvCell(row[col.Name])
 			}
-			csvWriter.Write(record)
+			_ = csvWriter.Write(record)
 		})
 		csvWriter.Flush()
 	}
@@ -193,7 +193,7 @@ func (h *Handlers) exportAllDataSQL(c *gin.Context) {
 				strings.Join(values, ", "))
 		})
 		if wroteHeader {
-			w.WriteString("\n")
+			_, _ = w.WriteString("\n")
 		}
 	}
 }

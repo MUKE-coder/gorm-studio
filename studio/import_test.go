@@ -14,9 +14,9 @@ func doMultipartRequest(router *gin.Engine, path, fieldName, filename, content s
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	part, _ := w.CreateFormFile(fieldName, filename)
-	part.Write([]byte(content))
+	_, _ = part.Write([]byte(content))
 	for k, v := range extraFields {
-		w.WriteField(k, v)
+		_ = w.WriteField(k, v)
 	}
 	w.Close()
 
@@ -83,7 +83,7 @@ func TestImportSchemaReadOnlyBlocked(t *testing.T) {
 	db := setupTestDB(t)
 
 	router := gin.New()
-	Mount(router, db, testModels(), Config{
+	_ = Mount(router, db, testModels(), Config{
 		Prefix:   "/studio",
 		ReadOnly: true,
 	})
@@ -176,7 +176,7 @@ func TestImportDataReadOnlyBlocked(t *testing.T) {
 	db := setupTestDB(t)
 
 	router := gin.New()
-	Mount(router, db, testModels(), Config{
+	_ = Mount(router, db, testModels(), Config{
 		Prefix:   "/studio",
 		ReadOnly: true,
 	})
@@ -273,4 +273,3 @@ Table posts {
 		t.Error("expected id to be primary key")
 	}
 }
-

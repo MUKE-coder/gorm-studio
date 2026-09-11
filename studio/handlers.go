@@ -794,7 +794,7 @@ func (h *Handlers) ExportTable(c *gin.Context) {
 		for i, col := range tableInfo.Columns {
 			colNames[i] = col.Name
 		}
-		writer.Write(colNames)
+		_ = writer.Write(colNames)
 
 		// Data rows
 		for _, row := range rows {
@@ -802,7 +802,7 @@ func (h *Handlers) ExportTable(c *gin.Context) {
 			for i, col := range tableInfo.Columns {
 				record[i] = csvCell(row[col.Name])
 			}
-			writer.Write(record)
+			_ = writer.Write(record)
 		}
 		writer.Flush()
 
@@ -812,7 +812,7 @@ func (h *Handlers) ExportTable(c *gin.Context) {
 
 		encoder := json.NewEncoder(c.Writer)
 		encoder.SetIndent("", "  ")
-		encoder.Encode(gin.H{
+		_ = encoder.Encode(gin.H{
 			"table": tableName,
 			"total": len(rows),
 			"rows":  rows,

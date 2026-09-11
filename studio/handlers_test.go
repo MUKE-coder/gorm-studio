@@ -434,11 +434,11 @@ func TestReadOnlyMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	db.AutoMigrate(&TestUser{})
+	_ = db.AutoMigrate(&TestUser{})
 	db.Create(&TestUser{Name: "Alice", Email: "alice@test.com"})
 
 	router := gin.New()
-	Mount(router, db, testModels(), Config{
+	_ = Mount(router, db, testModels(), Config{
 		Prefix:   "/studio",
 		ReadOnly: true,
 	})
@@ -477,10 +477,10 @@ func TestDisableSQLMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	db.AutoMigrate(&TestUser{})
+	_ = db.AutoMigrate(&TestUser{})
 
 	router := gin.New()
-	Mount(router, db, testModels(), Config{
+	_ = Mount(router, db, testModels(), Config{
 		Prefix:     "/studio",
 		DisableSQL: true,
 	})
@@ -527,7 +527,7 @@ func TestAuthMiddlewareStripsWWWAuthenticate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	db.AutoMigrate(&TestUser{})
+	_ = db.AutoMigrate(&TestUser{})
 
 	router := gin.New()
 	err = Mount(router, db, testModels(), Config{

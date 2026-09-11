@@ -147,9 +147,8 @@ func parseColumnDef(def string, dialect string) (*ColumnInfo, error) {
 	if strings.Contains(upper, "NOT NULL") {
 		col.IsNullable = false
 	}
-	if strings.Contains(upper, "AUTOINCREMENT") || strings.Contains(upper, "AUTO_INCREMENT") {
-		// Auto-increment is implied by the type for GORM
-	}
+	// Auto-increment (AUTOINCREMENT / AUTO_INCREMENT) is implied by the type for
+	// GORM, so it needs no explicit handling here.
 	if strings.EqualFold(colType, "SERIAL") || strings.EqualFold(colType, "BIGSERIAL") || strings.EqualFold(colType, "SMALLSERIAL") {
 		col.IsPrimaryKey = true
 		col.IsNullable = false

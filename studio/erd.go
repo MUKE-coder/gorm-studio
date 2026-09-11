@@ -303,17 +303,3 @@ func drawRoundedRectTop(dc *gg.Context, x, y, w, h, r float64) {
 	dc.LineTo(x, y+h)
 	dc.ClosePath()
 }
-
-// helper for SchemaInfo JSON/YAML serialization
-type schemaExport struct {
-	Tables   []tableExport `json:"tables" yaml:"tables"`
-	Database string        `json:"database" yaml:"database"`
-	Driver   string        `json:"driver" yaml:"driver"`
-}
-
-type tableExport struct {
-	Name        string        `json:"name" yaml:"name"`
-	Columns     []ColumnInfo  `json:"columns" yaml:"columns"`
-	Relations   []RelationInfo `json:"relations,omitempty" yaml:"relations,omitempty"`
-	PrimaryKeys []string      `json:"primary_keys,omitempty" yaml:"primary_keys,omitempty"`
-}
