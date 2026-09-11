@@ -195,8 +195,14 @@ studio.Mount(router, db, models, studio.Config{
     Scope:            nil,             // Row-level query scoping (multi-tenancy)
     TablePolicy:      studio.TablePolicy{}, // Hidden / read-only tables
     AuditLogger:      nil,             // Record mutations performed via Studio
+    MaxImportBytes:   0,               // Max import upload size (0 = 32 MiB default)
+    MaxImportRows:    0,               // Max rows per import (0 = 100k default)
 })
 ```
+
+Imports are size- and row-limited by default, validate column types before
+creating tables, and support a `?dry_run=true` preview. See
+[docs/security.md](docs/security.md#import-safety).
 
 > **Multi-tenant apps:** Studio bypasses your application's request-scoped
 > access control. Set a `Scope` (and `DisableSQL: true`) to enforce tenant/row

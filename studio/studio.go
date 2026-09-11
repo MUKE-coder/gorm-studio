@@ -49,7 +49,25 @@ type Config struct {
 	// performed through Studio (row create/update/delete, bulk delete, raw SQL
 	// writes, and imports). Use DefaultAuditLogger for simple stdout logging.
 	AuditLogger func(AuditEvent)
+
+	// MaxImportBytes caps the size of an uploaded import file. Requests larger
+	// than this are rejected before the body is read, bounding memory use
+	// against decompression/SQL bombs. Zero uses DefaultMaxImportBytes; a
+	// negative value disables the limit.
+	MaxImportBytes int64
+
+	// MaxImportRows caps how many rows a single import may insert (per file).
+	// Zero uses DefaultMaxImportRows; a negative value disables the limit.
+	MaxImportRows int
 }
+
+// Import limit defaults.
+const (
+	// DefaultMaxImportBytes is the default cap on uploaded import file size (32 MiB).
+	DefaultMaxImportBytes int64 = 32 << 20
+	// DefaultMaxImportRows is the default cap on rows inserted per import.
+	DefaultMaxImportRows = 100_000
+)
 
 // TablePolicy restricts which tables Studio exposes and which it may mutate.
 type TablePolicy struct {
@@ -105,6 +123,15 @@ func Mount(router *gin.Engine, db *gorm.DB, models []interface{}, configs ...Con
 	handlers.Audit = cfg.AuditLogger
 	handlers.Hidden = newNameSet(cfg.TablePolicy.Hidden)
 	handlers.ReadOnlyTables = newNameSet(cfg.TablePolicy.ReadOnly)
+
+	handlers.MaxImportBytes = cfg.MaxImportBytes
+	if handlers.MaxImportBytes == 0 {
+		handlers.MaxImportBytes = DefaultMaxImportBytes
+	}
+	handlers.MaxImportRows = cfg.MaxImportRows
+	if handlers.MaxImportRows == 0 {
+		handlers.MaxImportRows = DefaultMaxImportRows
+	}
 
 	group := router.Group(cfg.Prefix)
 

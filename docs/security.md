@@ -151,6 +151,39 @@ studio.Mount(router, db, models, studio.Config{
 The `Actor` is taken from the request context if your auth middleware records
 it under `studio_user`, `user`, `username`, or gin's basic-auth user key.
 
+## Import safety
+
+Studio's importers accept several hand-parsed formats (SQL, JSON, YAML, DBML,
+CSV, XLSX, and Go source). To bound their blast radius:
+
+- **Size limit.** Uploads larger than `MaxImportBytes` (default 32 MiB) are
+  rejected with 413 before the body is buffered. Set a negative value to
+  disable.
+- **Row limit.** A single import may insert at most `MaxImportRows` rows
+  (default 100,000). SQL data imports are also capped by statement count.
+- **Streaming XLSX.** Excel files are read row-by-row so a small upload that
+  decompresses to a huge sheet can't exhaust memory.
+- **Column-type validation.** Imported column types are checked against a plain
+  type-name pattern before being written into `CREATE TABLE`, so a crafted type
+  string can't inject DDL.
+- **INSERT-only data SQL.** SQL data imports run inside a transaction and
+  execute only `INSERT` statements; any other statement aborts the whole import
+  with nothing applied.
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    MaxImportBytes: 8 << 20, // 8 MiB
+    MaxImportRows:  10000,
+})
+```
+
+### Dry run
+
+Add `?dry_run=true` to any import endpoint (`/api/import/schema`,
+`/api/import/data`, `/api/import/models`) to preview what it would do — tables
+that would be created, rows that would be inserted — without applying any
+change.
+
 ## Adding Authentication
 
 ### Basic Auth (Quick Setup)

@@ -25,6 +25,34 @@ type Handlers struct {
 	Hidden         map[string]bool
 	ReadOnlyTables map[string]bool
 	Audit          func(AuditEvent)
+
+	// MaxImportBytes and MaxImportRows mirror the Config import limits (with
+	// defaults applied by Mount). A negative value disables the limit.
+	MaxImportBytes int64
+	MaxImportRows  int
+}
+
+// rowLimited reports whether n has reached the per-import row cap.
+func (h *Handlers) rowLimited(n int64) bool {
+	return h.MaxImportRows >= 0 && n >= int64(h.MaxImportRows)
+}
+
+// errImportTooManyRows is returned when an import exceeds MaxImportRows.
+func (h *Handlers) errImportTooManyRows() error {
+	return fmt.Errorf("import exceeds the maximum of %d rows", h.MaxImportRows)
+}
+
+// limitImportBody caps the request body size so an oversized upload is rejected
+// before it is buffered into memory.
+func (h *Handlers) limitImportBody(c *gin.Context) {
+	if h.MaxImportBytes >= 0 {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.MaxImportBytes)
+	}
+}
+
+// isBodyTooLarge reports whether err was produced by the MaxBytesReader cap.
+func isBodyTooLarge(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "too large")
 }
 
 // newNameSet builds a case-insensitive lookup set of table names.

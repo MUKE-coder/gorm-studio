@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -19,8 +20,13 @@ func (h *Handlers) ImportSchema(c *gin.Context) {
 		return
 	}
 
+	h.limitImportBody(c)
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
+		if isBodyTooLarge(err) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": fmt.Sprintf("import file exceeds the maximum of %d bytes", h.MaxImportBytes)})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
 		return
 	}
@@ -28,6 +34,10 @@ func (h *Handlers) ImportSchema(c *gin.Context) {
 
 	content, err := io.ReadAll(file)
 	if err != nil {
+		if isBodyTooLarge(err) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": fmt.Sprintf("import file exceeds the maximum of %d bytes", h.MaxImportBytes)})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
 		return
 	}
@@ -51,6 +61,27 @@ func (h *Handlers) ImportSchema(c *gin.Context) {
 
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Dry run: report what would be created without touching the database.
+	if isDryRun(c) {
+		for _, tbl := range tables {
+			if verr := validateTableTypes(tbl); verr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": verr.Error()})
+				return
+			}
+		}
+		names := make([]string, len(tables))
+		for i, tbl := range tables {
+			names[i] = tbl.Name
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"message":          "dry run: no changes applied",
+			"dry_run":          true,
+			"tables_to_create": names,
+			"tables":           tables,
+		})
 		return
 	}
 
@@ -126,12 +157,37 @@ func (h *Handlers) importSchemaFromDBML(content string) ([]TableInfo, error) {
 	return parseDBML(content)
 }
 
+// safeColumnType matches a plain SQL type name with an optional size/precision
+// specifier, e.g. INTEGER, TEXT, VARCHAR(255), DECIMAL(10,2), DOUBLE PRECISION.
+// It deliberately rejects anything containing punctuation that could break out
+// of the type position when spliced into DDL (quotes, semicolons, comments).
+var safeColumnType = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9 ]{0,63}(\([0-9]{1,5}(,[0-9]{1,5})?\))?$`)
+
+// validateTableTypes rejects imported column types that are not plain SQL type
+// names, since generateCreateTableSQL splices the type string directly into the
+// CREATE TABLE statement.
+func validateTableTypes(table TableInfo) error {
+	for _, col := range table.Columns {
+		if col.Type == "" {
+			continue // empty types fall back to a mapped default
+		}
+		if !safeColumnType.MatchString(strings.TrimSpace(col.Type)) {
+			return fmt.Errorf("invalid column type %q for column %q in table %q",
+				col.Type, col.Name, table.Name)
+		}
+	}
+	return nil
+}
+
 // createTablesFromInfo creates database tables from parsed TableInfo slices.
 func (h *Handlers) createTablesFromInfo(tables []TableInfo) ([]string, error) {
 	dialect := h.DB.Dialector.Name()
 	var created []string
 
 	for _, table := range tables {
+		if err := validateTableTypes(table); err != nil {
+			return created, err
+		}
 		ddl := generateCreateTableSQL(table, dialect)
 		// Use IF NOT EXISTS to avoid errors on existing tables
 		ddl = strings.Replace(ddl, "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1)

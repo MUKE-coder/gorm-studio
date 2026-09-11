@@ -31,8 +31,13 @@ func (h *Handlers) ImportGoModels(c *gin.Context) {
 		return
 	}
 
+	h.limitImportBody(c)
 	file, _, err := c.Request.FormFile("file")
 	if err != nil {
+		if isBodyTooLarge(err) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": fmt.Sprintf("import file exceeds the maximum of %d bytes", h.MaxImportBytes)})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
 		return
 	}
@@ -40,6 +45,10 @@ func (h *Handlers) ImportGoModels(c *gin.Context) {
 
 	content, err := io.ReadAll(file)
 	if err != nil {
+		if isBodyTooLarge(err) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": fmt.Sprintf("import file exceeds the maximum of %d bytes", h.MaxImportBytes)})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
 		return
 	}
@@ -52,6 +61,22 @@ func (h *Handlers) ImportGoModels(c *gin.Context) {
 
 	if len(structs) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no struct definitions found in file"})
+		return
+	}
+
+	// Dry run: report the structs/tables that would be created.
+	if isDryRun(c) {
+		var names, tableNames []string
+		for _, ps := range structs {
+			names = append(names, ps.Name)
+			tableNames = append(tableNames, toSnakeCase(ps.Name)+"s")
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"message":          "dry run: no changes applied",
+			"dry_run":          true,
+			"structs_parsed":   names,
+			"tables_to_create": tableNames,
+		})
 		return
 	}
 

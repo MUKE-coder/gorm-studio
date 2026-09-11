@@ -47,3 +47,20 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Fuzz parsers (smoke)
+        run: |
+          for target in FuzzParseCreateStatements FuzzParseDBML FuzzParseGoStructs FuzzSplitStatements FuzzRemoveComments; do
+            echo "== $target =="
+            go test ./studio/ -run '^$' -fuzz="^$target$" -fuzztime=30s
+          done

@@ -22,8 +22,13 @@ func (h *Handlers) ImportData(c *gin.Context) {
 		return
 	}
 
+	h.limitImportBody(c)
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
+		if isBodyTooLarge(err) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": fmt.Sprintf("import file exceeds the maximum of %d bytes", h.MaxImportBytes)})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
 		return
 	}
@@ -31,34 +36,39 @@ func (h *Handlers) ImportData(c *gin.Context) {
 
 	content, err := io.ReadAll(file)
 	if err != nil {
+		if isBodyTooLarge(err) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": fmt.Sprintf("import file exceeds the maximum of %d bytes", h.MaxImportBytes)})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
 		return
 	}
 
 	tableName := c.PostForm("table")
 	ext := strings.ToLower(filepath.Ext(header.Filename))
+	dryRun := isDryRun(c)
 
 	var rowsInserted int64
 	var tablesAffected []string
 
 	switch ext {
 	case ".json":
-		rowsInserted, tablesAffected, err = h.importDataJSON(content, tableName)
+		rowsInserted, tablesAffected, err = h.importDataJSON(content, tableName, dryRun)
 	case ".csv":
 		if tableName == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "table parameter is required for CSV imports"})
 			return
 		}
-		rowsInserted, err = h.importDataCSV(content, tableName)
+		rowsInserted, err = h.importDataCSV(content, tableName, dryRun)
 		tablesAffected = []string{tableName}
 	case ".sql":
-		rowsInserted, tablesAffected, err = h.importDataSQL(string(content))
+		rowsInserted, tablesAffected, err = h.importDataSQL(string(content), dryRun)
 	case ".xlsx":
 		if tableName == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "table parameter is required for Excel imports"})
 			return
 		}
-		rowsInserted, err = h.importDataExcel(content, tableName)
+		rowsInserted, err = h.importDataExcel(content, tableName, dryRun)
 		tablesAffected = []string{tableName}
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported format: " + ext + ". Use .json, .csv, .sql, or .xlsx"})
@@ -68,6 +78,16 @@ func (h *Handlers) ImportData(c *gin.Context) {
 	if err != nil {
 		h.audit(c, AuditEvent{Action: "import_data", Table: tableName, Success: false, Err: err.Error()})
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if dryRun {
+		c.JSON(http.StatusOK, gin.H{
+			"message":         "dry run: no changes applied",
+			"dry_run":         true,
+			"rows_to_insert":  rowsInserted,
+			"tables_affected": tablesAffected,
+		})
 		return
 	}
 
@@ -85,7 +105,13 @@ func (h *Handlers) ImportData(c *gin.Context) {
 	})
 }
 
-func (h *Handlers) importDataJSON(data []byte, tableName string) (int64, []string, error) {
+// isDryRun reports whether the request asked for a preview instead of applying
+// the import. Accepts ?dry_run=true or a dry_run form field.
+func isDryRun(c *gin.Context) bool {
+	return c.Query("dry_run") == "true" || c.PostForm("dry_run") == "true"
+}
+
+func (h *Handlers) importDataJSON(data []byte, tableName string, dryRun bool) (int64, []string, error) {
 	// Try multi-table format: { "table_name": [ {row}, ... ], ... }
 	var multiTable map[string][]map[string]interface{}
 	if err := json.Unmarshal(data, &multiTable); err == nil && len(multiTable) > 0 {
@@ -96,6 +122,13 @@ func (h *Handlers) importDataJSON(data []byte, tableName string) (int64, []strin
 				return 0, nil, err
 			}
 			for _, row := range rows {
+				if h.rowLimited(totalRows) {
+					return 0, nil, h.errImportTooManyRows()
+				}
+				if dryRun {
+					totalRows++
+					continue
+				}
 				filtered := filterValidColumns(h.Schema, tName, row)
 				if err := h.DB.Table(tName).Create(&filtered).Error; err != nil {
 					continue
@@ -124,6 +157,13 @@ func (h *Handlers) importDataJSON(data []byte, tableName string) (int64, []strin
 
 	var count int64
 	for _, row := range rows {
+		if h.rowLimited(count) {
+			return 0, nil, h.errImportTooManyRows()
+		}
+		if dryRun {
+			count++
+			continue
+		}
 		filtered := filterValidColumns(h.Schema, tableName, row)
 		if err := h.DB.Table(tableName).Create(&filtered).Error; err != nil {
 			continue
@@ -133,7 +173,7 @@ func (h *Handlers) importDataJSON(data []byte, tableName string) (int64, []strin
 	return count, []string{tableName}, nil
 }
 
-func (h *Handlers) importDataCSV(data []byte, tableName string) (int64, error) {
+func (h *Handlers) importDataCSV(data []byte, tableName string, dryRun bool) (int64, error) {
 	if err := h.tableWritable(tableName); err != nil {
 		return 0, err
 	}
@@ -163,6 +203,9 @@ func (h *Handlers) importDataCSV(data []byte, tableName string) (int64, error) {
 
 	var count int64
 	for {
+		if h.rowLimited(count) {
+			return 0, h.errImportTooManyRows()
+		}
 		record, err := reader.Read()
 		if err == io.EOF {
 			break
@@ -182,6 +225,10 @@ func (h *Handlers) importDataCSV(data []byte, tableName string) (int64, error) {
 		}
 
 		if len(row) > 0 {
+			if dryRun {
+				count++
+				continue
+			}
 			if err := h.DB.Table(tableName).Create(&row).Error; err != nil {
 				continue
 			}
@@ -191,7 +238,7 @@ func (h *Handlers) importDataCSV(data []byte, tableName string) (int64, error) {
 	return count, nil
 }
 
-func (h *Handlers) importDataSQL(content string) (int64, []string, error) {
+func (h *Handlers) importDataSQL(content string, dryRun bool) (int64, []string, error) {
 	// Strip comments and split with quote/paren awareness so a value like
 	// '(' or an embedded ';' can't smuggle a second statement past the
 	// INSERT-only check below.
@@ -227,11 +274,24 @@ func (h *Handlers) importDataSQL(content string) (int64, []string, error) {
 		stmts = append(stmts, stmt)
 	}
 
+	if h.MaxImportRows >= 0 && len(stmts) > h.MaxImportRows {
+		return 0, nil, h.errImportTooManyRows()
+	}
+
 	// Refuse the whole import if it targets a hidden or read-only table.
 	for t := range tablesSet {
 		if err := h.tableWritable(t); err != nil {
 			return 0, nil, err
 		}
+	}
+
+	var tables []string
+	for t := range tablesSet {
+		tables = append(tables, t)
+	}
+
+	if dryRun {
+		return int64(len(stmts)), tables, nil
 	}
 
 	// Execute inside a transaction so a mid-batch failure rolls back cleanly.
@@ -249,14 +309,10 @@ func (h *Handlers) importDataSQL(content string) (int64, []string, error) {
 		return 0, nil, err
 	}
 
-	var tables []string
-	for t := range tablesSet {
-		tables = append(tables, t)
-	}
 	return count, tables, nil
 }
 
-func (h *Handlers) importDataExcel(fileBytes []byte, tableName string) (int64, error) {
+func (h *Handlers) importDataExcel(fileBytes []byte, tableName string, dryRun bool) (int64, error) {
 	if err := h.tableWritable(tableName); err != nil {
 		return 0, err
 	}
@@ -268,16 +324,23 @@ func (h *Handlers) importDataExcel(fileBytes []byte, tableName string) (int64, e
 	defer f.Close()
 
 	sheetName := f.GetSheetName(0)
-	rows, err := f.GetRows(sheetName)
+
+	// Stream rows rather than materializing the whole sheet, so a file whose
+	// decompressed size dwarfs its upload size can't exhaust memory.
+	it, err := f.Rows(sheetName)
 	if err != nil {
 		return 0, fmt.Errorf("reading Excel sheet: %w", err)
 	}
+	defer it.Close()
 
-	if len(rows) < 2 {
+	if !it.Next() {
 		return 0, fmt.Errorf("Excel file must have a header row and at least one data row")
 	}
+	headers, err := it.Columns()
+	if err != nil {
+		return 0, fmt.Errorf("reading Excel headers: %w", err)
+	}
 
-	headers := rows[0]
 	type headerMapping struct {
 		index int
 		name  string
@@ -295,7 +358,14 @@ func (h *Handlers) importDataExcel(fileBytes []byte, tableName string) (int64, e
 	}
 
 	var count int64
-	for _, row := range rows[1:] {
+	for it.Next() {
+		if h.rowLimited(count) {
+			return 0, h.errImportTooManyRows()
+		}
+		row, err := it.Columns()
+		if err != nil {
+			continue
+		}
 		data := make(map[string]interface{})
 		for _, hm := range validHeaders {
 			if hm.index < len(row) {
@@ -307,6 +377,10 @@ func (h *Handlers) importDataExcel(fileBytes []byte, tableName string) (int64, e
 		}
 
 		if len(data) > 0 {
+			if dryRun {
+				count++
+				continue
+			}
 			if err := h.DB.Table(tableName).Create(&data).Error; err != nil {
 				continue
 			}
