@@ -202,6 +202,7 @@ studio.Mount(router, db, models, studio.Config{
     AuditLogger:      nil,             // Record mutations performed via Studio
     MaxImportBytes:   0,               // Max import upload size (0 = 32 MiB default)
     MaxImportRows:    0,               // Max rows per import (0 = 100k default)
+    ImportTimeout:    0,               // Max import duration (0 = 30s default)
     RateLimit:        studio.RateLimitConfig{}, // Per-IP limits for /sql and /import/*
 })
 ```

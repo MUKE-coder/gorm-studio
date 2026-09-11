@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gopkg.in/yaml.v3"
+	"gorm.io/gorm"
 )
 
 // ImportSchema handles POST /api/import/schema
@@ -85,8 +86,10 @@ func (h *Handlers) ImportSchema(c *gin.Context) {
 		return
 	}
 
-	// Create tables in the database
-	tablesCreated, err := h.createTablesFromInfo(tables)
+	// Create tables in the database (time-bounded)
+	db, cancel := h.importDB(c)
+	defer cancel()
+	tablesCreated, err := h.createTablesFromInfo(db, tables)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -180,8 +183,8 @@ func validateTableTypes(table TableInfo) error {
 }
 
 // createTablesFromInfo creates database tables from parsed TableInfo slices.
-func (h *Handlers) createTablesFromInfo(tables []TableInfo) ([]string, error) {
-	dialect := h.DB.Dialector.Name()
+func (h *Handlers) createTablesFromInfo(db *gorm.DB, tables []TableInfo) ([]string, error) {
+	dialect := db.Dialector.Name()
 	var created []string
 
 	for _, table := range tables {
@@ -191,7 +194,7 @@ func (h *Handlers) createTablesFromInfo(tables []TableInfo) ([]string, error) {
 		ddl := generateCreateTableSQL(table, dialect)
 		// Use IF NOT EXISTS to avoid errors on existing tables
 		ddl = strings.Replace(ddl, "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1)
-		if err := h.DB.Exec(ddl).Error; err != nil {
+		if err := db.Exec(ddl).Error; err != nil {
 			return created, fmt.Errorf("creating table %s: %w", table.Name, err)
 		}
 		created = append(created, table.Name)

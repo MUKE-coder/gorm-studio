@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // ParsedStruct represents a parsed Go struct.
@@ -80,12 +81,15 @@ func (h *Handlers) ImportGoModels(c *gin.Context) {
 		return
 	}
 
+	db, cancel := h.importDB(c)
+	defer cancel()
+
 	var tablesCreated []string
 	var structsParsed []string
 
 	for _, ps := range structs {
 		structsParsed = append(structsParsed, ps.Name)
-		tableName, err := h.createTableFromStruct(ps)
+		tableName, err := h.createTableFromStruct(db, ps)
 		if err != nil {
 			continue
 		}
@@ -242,9 +246,9 @@ func isBasicGoType(t string) bool {
 }
 
 // createTableFromStruct creates a database table from a parsed Go struct.
-func (h *Handlers) createTableFromStruct(ps ParsedStruct) (string, error) {
+func (h *Handlers) createTableFromStruct(db *gorm.DB, ps ParsedStruct) (string, error) {
 	tableName := toSnakeCase(ps.Name) + "s"
-	dialect := h.DB.Dialector.Name()
+	dialect := db.Dialector.Name()
 
 	var colDefs []string
 	for _, f := range ps.Fields {
@@ -283,7 +287,7 @@ func (h *Handlers) createTableFromStruct(ps ParsedStruct) (string, error) {
 	ddl := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n  %s\n);",
 		quoteIdent(dialect, tableName), strings.Join(colDefs, ",\n  "))
 
-	if err := h.DB.Exec(ddl).Error; err != nil {
+	if err := db.Exec(ddl).Error; err != nil {
 		return "", fmt.Errorf("creating table %s: %w", tableName, err)
 	}
 	return tableName, nil

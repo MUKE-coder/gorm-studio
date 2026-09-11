@@ -48,27 +48,30 @@ func (h *Handlers) ImportData(c *gin.Context) {
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	dryRun := isDryRun(c)
 
+	db, cancel := h.importDB(c)
+	defer cancel()
+
 	var rowsInserted int64
 	var tablesAffected []string
 
 	switch ext {
 	case ".json":
-		rowsInserted, tablesAffected, err = h.importDataJSON(content, tableName, dryRun)
+		rowsInserted, tablesAffected, err = h.importDataJSON(db, content, tableName, dryRun)
 	case ".csv":
 		if tableName == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "table parameter is required for CSV imports"})
 			return
 		}
-		rowsInserted, err = h.importDataCSV(content, tableName, dryRun)
+		rowsInserted, err = h.importDataCSV(db, content, tableName, dryRun)
 		tablesAffected = []string{tableName}
 	case ".sql":
-		rowsInserted, tablesAffected, err = h.importDataSQL(string(content), dryRun)
+		rowsInserted, tablesAffected, err = h.importDataSQL(db, string(content), dryRun)
 	case ".xlsx":
 		if tableName == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "table parameter is required for Excel imports"})
 			return
 		}
-		rowsInserted, err = h.importDataExcel(content, tableName, dryRun)
+		rowsInserted, err = h.importDataExcel(db, content, tableName, dryRun)
 		tablesAffected = []string{tableName}
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported format: " + ext + ". Use .json, .csv, .sql, or .xlsx"})
@@ -111,7 +114,7 @@ func isDryRun(c *gin.Context) bool {
 	return c.Query("dry_run") == "true" || c.PostForm("dry_run") == "true"
 }
 
-func (h *Handlers) importDataJSON(data []byte, tableName string, dryRun bool) (int64, []string, error) {
+func (h *Handlers) importDataJSON(db *gorm.DB, data []byte, tableName string, dryRun bool) (int64, []string, error) {
 	// Try multi-table format: { "table_name": [ {row}, ... ], ... }
 	var multiTable map[string][]map[string]interface{}
 	if err := json.Unmarshal(data, &multiTable); err == nil && len(multiTable) > 0 {
@@ -130,7 +133,7 @@ func (h *Handlers) importDataJSON(data []byte, tableName string, dryRun bool) (i
 					continue
 				}
 				filtered := filterValidColumns(h.Schema, tName, row)
-				if err := h.DB.Table(tName).Create(&filtered).Error; err != nil {
+				if err := db.Table(tName).Create(&filtered).Error; err != nil {
 					continue
 				}
 				totalRows++
@@ -165,7 +168,7 @@ func (h *Handlers) importDataJSON(data []byte, tableName string, dryRun bool) (i
 			continue
 		}
 		filtered := filterValidColumns(h.Schema, tableName, row)
-		if err := h.DB.Table(tableName).Create(&filtered).Error; err != nil {
+		if err := db.Table(tableName).Create(&filtered).Error; err != nil {
 			continue
 		}
 		count++
@@ -173,7 +176,7 @@ func (h *Handlers) importDataJSON(data []byte, tableName string, dryRun bool) (i
 	return count, []string{tableName}, nil
 }
 
-func (h *Handlers) importDataCSV(data []byte, tableName string, dryRun bool) (int64, error) {
+func (h *Handlers) importDataCSV(db *gorm.DB, data []byte, tableName string, dryRun bool) (int64, error) {
 	if err := h.tableWritable(tableName); err != nil {
 		return 0, err
 	}
@@ -229,7 +232,7 @@ func (h *Handlers) importDataCSV(data []byte, tableName string, dryRun bool) (in
 				count++
 				continue
 			}
-			if err := h.DB.Table(tableName).Create(&row).Error; err != nil {
+			if err := db.Table(tableName).Create(&row).Error; err != nil {
 				continue
 			}
 			count++
@@ -238,7 +241,7 @@ func (h *Handlers) importDataCSV(data []byte, tableName string, dryRun bool) (in
 	return count, nil
 }
 
-func (h *Handlers) importDataSQL(content string, dryRun bool) (int64, []string, error) {
+func (h *Handlers) importDataSQL(db *gorm.DB, content string, dryRun bool) (int64, []string, error) {
 	// Strip comments and split with quote/paren awareness so a value like
 	// '(' or an embedded ';' can't smuggle a second statement past the
 	// INSERT-only check below.
@@ -296,7 +299,7 @@ func (h *Handlers) importDataSQL(content string, dryRun bool) (int64, []string, 
 
 	// Execute inside a transaction so a mid-batch failure rolls back cleanly.
 	var count int64
-	err := h.DB.Transaction(func(tx *gorm.DB) error {
+	err := db.Transaction(func(tx *gorm.DB) error {
 		for _, stmt := range stmts {
 			if err := tx.Exec(stmt).Error; err != nil {
 				return fmt.Errorf("executing INSERT: %w", err)
@@ -312,7 +315,7 @@ func (h *Handlers) importDataSQL(content string, dryRun bool) (int64, []string, 
 	return count, tables, nil
 }
 
-func (h *Handlers) importDataExcel(fileBytes []byte, tableName string, dryRun bool) (int64, error) {
+func (h *Handlers) importDataExcel(db *gorm.DB, fileBytes []byte, tableName string, dryRun bool) (int64, error) {
 	if err := h.tableWritable(tableName); err != nil {
 		return 0, err
 	}
@@ -381,7 +384,7 @@ func (h *Handlers) importDataExcel(fileBytes []byte, tableName string, dryRun bo
 				count++
 				continue
 			}
-			if err := h.DB.Table(tableName).Create(&data).Error; err != nil {
+			if err := db.Table(tableName).Create(&data).Error; err != nil {
 				continue
 			}
 			count++

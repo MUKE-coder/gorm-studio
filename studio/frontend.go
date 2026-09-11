@@ -1058,9 +1058,22 @@ function ToolCard({ title, description, children }) {
   );
 }
 
+function dryRunSummary(d) {
+  const parts = ['Preview (dry run) \u2014 no changes applied.'];
+  if (d.tables_to_create && d.tables_to_create.length) parts.push('Would create: ' + d.tables_to_create.join(', ') + '.');
+  if (typeof d.rows_to_insert === 'number') {
+    let s = 'Would insert ' + d.rows_to_insert + ' row(s)';
+    if (d.tables_affected && d.tables_affected.length) s += ' into ' + d.tables_affected.join(', ');
+    parts.push(s + '.');
+  }
+  if (d.structs_parsed && d.structs_parsed.length) parts.push('Structs: ' + d.structs_parsed.join(', ') + '.');
+  return parts.join(' ');
+}
+
 function FileUploader({ endpoint, accept, showToast, onSuccess, extraFields }) {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [dryRun, setDryRun] = useState(false);
 
   const upload = async (file) => {
     setUploading(true);
@@ -1072,17 +1085,23 @@ function FileUploader({ endpoint, accept, showToast, onSuccess, extraFields }) {
     try {
       const uploadHeaders = {};
       if (authToken) uploadHeaders['Authorization'] = 'Basic ' + authToken;
-      const res = await fetch(CONFIG.prefix + '/api' + endpoint, { method: 'POST', credentials: 'omit', body: formData, headers: uploadHeaders });
+      const url = CONFIG.prefix + '/api' + endpoint + (dryRun ? '?dry_run=true' : '');
+      const res = await fetch(url, { method: 'POST', credentials: 'omit', body: formData, headers: uploadHeaders });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload failed');
-      if (onSuccess) onSuccess(data);
+      if (data.dry_run) {
+        // Preview only: report what would happen; do not refresh (nothing changed).
+        showToast('success', dryRunSummary(data));
+      } else if (onSuccess) {
+        onSuccess(data);
+      }
     } catch (err) {
       showToast('error', err.message);
     }
     setUploading(false);
   };
 
-  return React.createElement('div', {
+  const dropZone = React.createElement('div', {
     onDragOver: (e) => { e.preventDefault(); setDragOver(true); },
     onDragLeave: () => setDragOver(false),
     onDrop: (e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); },
@@ -1107,6 +1126,16 @@ function FileUploader({ endpoint, accept, showToast, onSuccess, extraFields }) {
           React.createElement('div', {style:{fontSize:11,color:'var(--text-muted)',marginTop:4}}, accept)
         )
   );
+
+  const previewToggle = React.createElement('label', {
+    style:{display:'flex',alignItems:'center',gap:6,fontSize:12,color:'var(--text-muted)',marginBottom:8,cursor:'pointer',userSelect:'none'},
+    onClick:(e)=>e.stopPropagation()
+  },
+    React.createElement('input', {type:'checkbox', checked:dryRun, onChange:(e)=>setDryRun(e.target.checked)}),
+    'Preview only (dry run) \u2014 show what would change without applying it'
+  );
+
+  return React.createElement('div', null, previewToggle, dropZone);
 }
 
 function ToolsPanel({ schema, showToast, onRefresh }) {

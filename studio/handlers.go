@@ -1,12 +1,14 @@
 package studio
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -30,6 +32,20 @@ type Handlers struct {
 	// defaults applied by Mount). A negative value disables the limit.
 	MaxImportBytes int64
 	MaxImportRows  int
+	// ImportTimeout bounds a single import's duration (negative disables it).
+	ImportTimeout time.Duration
+}
+
+// importDB returns a DB bound to a context that cancels after ImportTimeout,
+// so a long-running import is aborted rather than tying up the process. The
+// returned cancel func must be called when the import completes.
+func (h *Handlers) importDB(c *gin.Context) (*gorm.DB, context.CancelFunc) {
+	ctx := c.Request.Context()
+	if h.ImportTimeout <= 0 {
+		return h.DB.WithContext(ctx), func() {}
+	}
+	ctx, cancel := context.WithTimeout(ctx, h.ImportTimeout)
+	return h.DB.WithContext(ctx), cancel
 }
 
 // rowLimited reports whether n has reached the per-import row cap.

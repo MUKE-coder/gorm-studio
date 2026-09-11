@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -63,6 +64,10 @@ type Config struct {
 	// RateLimit applies Studio-specific per-client-IP rate limiting to the SQL
 	// and import endpoints. The zero value applies no limit.
 	RateLimit RateLimitConfig
+
+	// ImportTimeout bounds how long a single import may run. Zero uses
+	// DefaultImportTimeout; a negative value disables the timeout.
+	ImportTimeout time.Duration
 }
 
 // contentSecurityPolicy is served with the Studio HTML page. It pins script and
@@ -94,6 +99,8 @@ const (
 	DefaultMaxImportBytes int64 = 32 << 20
 	// DefaultMaxImportRows is the default cap on rows inserted per import.
 	DefaultMaxImportRows = 100_000
+	// DefaultImportTimeout is the default time bound on a single import.
+	DefaultImportTimeout = 30 * time.Second
 )
 
 // TablePolicy restricts which tables Studio exposes and which it may mutate.
@@ -158,6 +165,10 @@ func Mount(router *gin.Engine, db *gorm.DB, models []interface{}, configs ...Con
 	handlers.MaxImportRows = cfg.MaxImportRows
 	if handlers.MaxImportRows == 0 {
 		handlers.MaxImportRows = DefaultMaxImportRows
+	}
+	handlers.ImportTimeout = cfg.ImportTimeout
+	if handlers.ImportTimeout == 0 {
+		handlers.ImportTimeout = DefaultImportTimeout
 	}
 
 	sqlLimiter := newRateLimiter(cfg.RateLimit.SQLPerMinute)

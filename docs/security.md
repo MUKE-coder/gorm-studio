@@ -161,6 +161,9 @@ CSV, XLSX, and Go source). To bound their blast radius:
   disable.
 - **Row limit.** A single import may insert at most `MaxImportRows` rows
   (default 100,000). SQL data imports are also capped by statement count.
+- **Time limit.** Each import runs under `ImportTimeout` (default 30s); the
+  operation is bound to a context that is cancelled when it elapses, so an
+  import can't hang the process indefinitely.
 - **Streaming XLSX.** Excel files are read row-by-row so a small upload that
   decompresses to a huge sheet can't exhaust memory.
 - **Column-type validation.** Imported column types are checked against a plain
@@ -174,6 +177,7 @@ CSV, XLSX, and Go source). To bound their blast radius:
 studio.Mount(router, db, models, studio.Config{
     MaxImportBytes: 8 << 20, // 8 MiB
     MaxImportRows:  10000,
+    ImportTimeout:  15 * time.Second,
 })
 ```
 
@@ -182,7 +186,8 @@ studio.Mount(router, db, models, studio.Config{
 Add `?dry_run=true` to any import endpoint (`/api/import/schema`,
 `/api/import/data`, `/api/import/models`) to preview what it would do — tables
 that would be created, rows that would be inserted — without applying any
-change.
+change. In the Studio UI, tick **"Preview only (dry run)"** above any import
+drop zone before choosing a file.
 
 ## Adding Authentication
 

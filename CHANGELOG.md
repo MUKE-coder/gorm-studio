@@ -5,7 +5,7 @@ All notable changes to GORM Studio are documented here. The format is based on
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (see
 [STABILITY.md](STABILITY.md)).
 
-## [Unreleased]
+## [1.1.0]
 
 This release is a security-hardening pass. All changes are backward compatible
 at the `studio.Mount` / `studio.Config` API level; the behavioral changes below
@@ -42,12 +42,14 @@ succeeded.
   (browsable, not mutable) tables.
 - **`Config.AuditLogger` / `AuditEvent`** — records every mutation with the
   acting user; `DefaultAuditLogger` logs to stdout.
-- **`Config.MaxImportBytes` / `Config.MaxImportRows`** — import size and row
-  limits (defaults 32 MiB / 100k). Excel import streams rows to bound memory.
+- **`Config.MaxImportBytes` / `Config.MaxImportRows` / `Config.ImportTimeout`**
+  — import size, row, and time limits (defaults 32 MiB / 100k / 30s). Excel
+  import streams rows to bound memory.
 - **`Config.RateLimit`** — per-client-IP rate limiting on the SQL and import
   endpoints.
 - **Import dry run** — `?dry_run=true` previews a schema/data/models import
-  without applying it.
+  without applying it, surfaced in the UI as a "Preview only (dry run)" toggle
+  on each import drop zone.
 - **Streaming exports** — full-database exports page through rows instead of
   loading whole tables into memory.
 - **Fuzz tests** for the SQL/DBML/Go-struct/statement parsers, plus a CI

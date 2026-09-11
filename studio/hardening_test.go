@@ -2,8 +2,10 @@ package studio
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -16,6 +18,12 @@ func setupLimitRouter(t *testing.T, cfg Config) (*gin.Engine, *gorm.DB) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
+	}
+	// Pin to a single connection so the in-memory DB (which is per-connection)
+	// stays consistent even when the context-cancellation path returns a
+	// connection to the pool.
+	if sqlDB, derr := db.DB(); derr == nil {
+		sqlDB.SetMaxOpenConns(1)
 	}
 	if err := db.AutoMigrate(&TestUser{}); err != nil {
 		t.Fatalf("migrate: %v", err)
@@ -56,6 +64,33 @@ func TestImport_MaxRowsRejectsTooManyRows(t *testing.T) {
 	db.Model(&TestUser{}).Count(&n)
 	if n > 2+2 { // 2 seeded + at most the cap
 		t.Errorf("row cap not enforced: %d rows present", n)
+	}
+}
+
+// --- 2.1 Import timeout ---
+
+// The import timeout is enforced by binding the import's DB to a context with a
+// deadline; actual cancellation depends on the driver honoring the context
+// (PostgreSQL/MySQL do; the pure-Go SQLite test driver does not). This test
+// verifies the plumbing: a positive ImportTimeout yields a deadline, and a
+// negative one does not.
+func TestImport_TimeoutSetsDeadline(t *testing.T) {
+	_, db := setupLimitRouter(t, Config{})
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/studio/api/import/data", nil)
+
+	withTO := &Handlers{DB: db, ImportTimeout: 5 * time.Second}
+	gdb, cancel := withTO.importDB(c)
+	defer cancel()
+	if _, ok := gdb.Statement.Context.Deadline(); !ok {
+		t.Error("expected a deadline on the import DB context when ImportTimeout > 0")
+	}
+
+	noTO := &Handlers{DB: db, ImportTimeout: -1}
+	gdb2, cancel2 := noTO.importDB(c)
+	defer cancel2()
+	if _, ok := gdb2.Statement.Context.Deadline(); ok {
+		t.Error("expected no deadline when ImportTimeout is disabled")
 	}
 }
 
