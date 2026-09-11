@@ -5,6 +5,11 @@ A **Prisma Studio-like** visual database browser and editor for Go applications 
 ![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)
 ![GORM](https://img.shields.io/badge/GORM-v2-FF6B6B)
 ![License](https://img.shields.io/badge/license-MIT-green)
+![Databases](https://img.shields.io/badge/databases-SQLite%20%7C%20Postgres%20%7C%20MySQL-blue)
+
+Tested with race detection and parser fuzzing across SQLite, PostgreSQL, and
+MySQL. See the [changelog](CHANGELOG.md), [stability policy](STABILITY.md), and
+[security guide](docs/security.md).
 
 ## ✨ Features
 

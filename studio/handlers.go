@@ -784,17 +784,7 @@ func (h *Handlers) ExportTable(c *gin.Context) {
 		for _, row := range rows {
 			record := make([]string, len(tableInfo.Columns))
 			for i, col := range tableInfo.Columns {
-				val := row[col.Name]
-				if val == nil {
-					record[i] = ""
-				} else {
-					s := fmt.Sprintf("%v", val)
-					// Sanitize formula injection: prefix with single quote
-					if len(s) > 0 && (s[0] == '=' || s[0] == '+' || s[0] == '-' || s[0] == '@') {
-						s = "'" + s
-					}
-					record[i] = s
-				}
+				record[i] = csvCell(row[col.Name])
 			}
 			writer.Write(record)
 		}

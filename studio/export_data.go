@@ -28,37 +28,97 @@ func (h *Handlers) ExportAllData(c *gin.Context) {
 	}
 }
 
-func (h *Handlers) exportAllDataJSON(c *gin.Context) {
-	result := map[string]interface{}{
-		"database":    h.Schema.Database,
-		"driver":      h.Schema.Driver,
-		"exported_at": time.Now().UTC().Format(time.RFC3339),
-	}
+// exportBatchSize is how many rows are read from the DB at a time when
+// streaming a full-database export, so a multi-million-row table doesn't have
+// to be held in memory all at once.
+const exportBatchSize = 1000
 
-	tablesData := make(map[string]interface{})
-	for _, table := range h.visibleSchema().Tables {
-		var rows []map[string]interface{}
-		if err := h.scoped(c, table.Name).Find(&rows).Error; err != nil {
-			continue
+// streamRows reads a table in Scope-constrained pages of exportBatchSize and
+// invokes fn for each row, so an export never holds a whole table in memory.
+// Rows are ordered by primary key (when known) so paging is stable.
+func (h *Handlers) streamRows(c *gin.Context, table string, fn func(row map[string]interface{})) {
+	pk := ""
+	if ti := h.getTableInfo(table); ti != nil {
+		pk = getPrimaryKey(h.Schema, table)
+	}
+	offset := 0
+	for {
+		var batch []map[string]interface{}
+		q := h.scoped(c, table)
+		if pk != "" {
+			q = q.Order(h.qi(pk))
 		}
+		if err := q.Offset(offset).Limit(exportBatchSize).Find(&batch).Error; err != nil {
+			return
+		}
+		for i := range batch {
+			fn(batch[i])
+		}
+		if len(batch) < exportBatchSize {
+			return
+		}
+		offset += len(batch)
+	}
+}
+
+// csvCell renders a value as a CSV field, neutralizing spreadsheet formula
+// injection by prefixing a leading =, +, -, or @ with a single quote.
+func csvCell(val interface{}) string {
+	if val == nil {
+		return ""
+	}
+	s := fmt.Sprintf("%v", val)
+	if len(s) > 0 && (s[0] == '=' || s[0] == '+' || s[0] == '-' || s[0] == '@') {
+		s = "'" + s
+	}
+	return s
+}
+
+func jsonValue(v interface{}) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "null"
+	}
+	return string(b)
+}
+
+func (h *Handlers) exportAllDataJSON(c *gin.Context) {
+	c.Header("Content-Disposition", "attachment; filename=database_export.json")
+	c.Header("Content-Type", "application/json")
+	w := c.Writer
+
+	fmt.Fprintf(w, `{"database":%s,"driver":%s,"exported_at":%s,"tables":{`,
+		jsonValue(h.Schema.Database), jsonValue(h.Schema.Driver),
+		jsonValue(time.Now().UTC().Format(time.RFC3339)))
+
+	firstTable := true
+	for _, table := range h.visibleSchema().Tables {
 		colNames := make([]string, len(table.Columns))
 		for i, col := range table.Columns {
 			colNames[i] = col.Name
 		}
-		tablesData[table.Name] = map[string]interface{}{
-			"columns":   colNames,
-			"row_count": len(rows),
-			"rows":      rows,
+
+		if !firstTable {
+			w.WriteString(",")
 		}
+		firstTable = false
+		fmt.Fprintf(w, `%s:{"columns":%s,"rows":[`, jsonValue(table.Name), jsonValue(colNames))
+
+		var rowCount int64
+		firstRow := true
+		h.streamRows(c, table.Name, func(row map[string]interface{}) {
+			if !firstRow {
+				w.WriteString(",")
+			}
+			firstRow = false
+			w.WriteString(jsonValue(row))
+			rowCount++
+		})
+
+		fmt.Fprintf(w, `],"row_count":%d}`, rowCount)
 	}
-	result["tables"] = tablesData
 
-	c.Header("Content-Disposition", "attachment; filename=database_export.json")
-	c.Header("Content-Type", "application/json")
-
-	encoder := json.NewEncoder(c.Writer)
-	encoder.SetIndent("", "  ")
-	encoder.Encode(result)
+	w.WriteString("}}")
 }
 
 func (h *Handlers) exportAllDataCSV(c *gin.Context) {
@@ -69,16 +129,10 @@ func (h *Handlers) exportAllDataCSV(c *gin.Context) {
 	defer zw.Close()
 
 	for _, table := range h.visibleSchema().Tables {
-		var rows []map[string]interface{}
-		if err := h.scoped(c, table.Name).Find(&rows).Error; err != nil {
-			continue
-		}
-
 		w, err := zw.Create(table.Name + ".csv")
 		if err != nil {
 			continue
 		}
-
 		csvWriter := csv.NewWriter(w)
 
 		// Header
@@ -88,24 +142,15 @@ func (h *Handlers) exportAllDataCSV(c *gin.Context) {
 		}
 		csvWriter.Write(colNames)
 
-		// Data rows
-		for _, row := range rows {
-			record := make([]string, len(table.Columns))
-			for i, col := range table.Columns {
-				val := row[col.Name]
-				if val == nil {
-					record[i] = ""
-				} else {
-					s := fmt.Sprintf("%v", val)
-					// Sanitize formula injection
-					if len(s) > 0 && (s[0] == '=' || s[0] == '+' || s[0] == '-' || s[0] == '@') {
-						s = "'" + s
-					}
-					record[i] = s
-				}
+		// Data rows, streamed in batches
+		cols := table.Columns
+		h.streamRows(c, table.Name, func(row map[string]interface{}) {
+			record := make([]string, len(cols))
+			for i, col := range cols {
+				record[i] = csvCell(row[col.Name])
 			}
 			csvWriter.Write(record)
-		}
+		})
 		csvWriter.Flush()
 	}
 }
@@ -113,31 +158,21 @@ func (h *Handlers) exportAllDataCSV(c *gin.Context) {
 func (h *Handlers) exportAllDataSQL(c *gin.Context) {
 	c.Header("Content-Disposition", "attachment; filename=database_export.sql")
 	c.Header("Content-Type", "text/sql; charset=utf-8")
+	w := c.Writer
 
-	var sb strings.Builder
-	sb.WriteString("-- Database export generated by GORM Studio\n")
-	sb.WriteString(fmt.Sprintf("-- Driver: %s\n", h.Schema.Driver))
-	sb.WriteString(fmt.Sprintf("-- Exported at: %s\n\n", time.Now().UTC().Format(time.RFC3339)))
+	fmt.Fprintf(w, "-- Database export generated by GORM Studio\n")
+	fmt.Fprintf(w, "-- Driver: %s\n", h.Schema.Driver)
+	fmt.Fprintf(w, "-- Exported at: %s\n\n", time.Now().UTC().Format(time.RFC3339))
 
 	driver := h.DB.Dialector.Name()
 
 	for _, table := range h.visibleSchema().Tables {
-		var rows []map[string]interface{}
-		if err := h.scoped(c, table.Name).Find(&rows).Error; err != nil {
-			continue
-		}
-
-		if len(rows) == 0 {
-			continue
-		}
-
-		sb.WriteString(fmt.Sprintf("-- Table: %s (%d rows)\n", table.Name, len(rows)))
-
-		for _, row := range rows {
-			colNames := make([]string, 0, len(table.Columns))
-			values := make([]string, 0, len(table.Columns))
-
-			for _, col := range table.Columns {
+		cols := table.Columns
+		wroteHeader := false
+		h.streamRows(c, table.Name, func(row map[string]interface{}) {
+			colNames := make([]string, 0, len(cols))
+			values := make([]string, 0, len(cols))
+			for _, col := range cols {
 				val := row[col.Name]
 				if val == nil {
 					continue
@@ -145,18 +180,22 @@ func (h *Handlers) exportAllDataSQL(c *gin.Context) {
 				colNames = append(colNames, quoteIdent(driver, col.Name))
 				values = append(values, formatSQLValue(val))
 			}
-
-			if len(colNames) > 0 {
-				sb.WriteString(fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s);\n",
-					quoteIdent(driver, table.Name),
-					strings.Join(colNames, ", "),
-					strings.Join(values, ", ")))
+			if len(colNames) == 0 {
+				return
 			}
+			if !wroteHeader {
+				fmt.Fprintf(w, "-- Table: %s\n", table.Name)
+				wroteHeader = true
+			}
+			fmt.Fprintf(w, "INSERT INTO %s (%s) VALUES (%s);\n",
+				quoteIdent(driver, table.Name),
+				strings.Join(colNames, ", "),
+				strings.Join(values, ", "))
+		})
+		if wroteHeader {
+			w.WriteString("\n")
 		}
-		sb.WriteString("\n")
 	}
-
-	c.Writer.WriteString(sb.String())
 }
 
 // formatSQLValue formats a Go value as a SQL literal.

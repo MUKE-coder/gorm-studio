@@ -64,3 +64,42 @@ jobs:
             echo "== $target =="
             go test ./studio/ -run '^$' -fuzz="^$target$" -fuzztime=30s
           done
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: studio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: studio
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Integration tests (Postgres + MySQL)
+        env:
+          STUDIO_PG_DSN: "host=127.0.0.1 user=postgres password=postgres dbname=studio port=5432 sslmode=disable"
+          STUDIO_MYSQL_DSN: "root:root@tcp(127.0.0.1:3306)/studio?charset=utf8mb4&parseTime=True&loc=Local"
+        run: go test ./studio/ -tags integration -run Integration -v
