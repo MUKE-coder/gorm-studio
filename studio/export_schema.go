@@ -13,15 +13,16 @@ import (
 // ExportSchema handles GET /api/export/schema?format=sql|json|yaml|dbml|png|pdf
 func (h *Handlers) ExportSchema(c *gin.Context) {
 	format := c.DefaultQuery("format", "json")
+	schema := h.visibleSchema()
 
 	switch format {
 	case "sql":
-		content := ExportSchemaSQL(h.Schema)
+		content := ExportSchemaSQL(schema)
 		c.Header("Content-Disposition", "attachment; filename=schema.sql")
 		c.Data(http.StatusOK, "text/sql; charset=utf-8", []byte(content))
 
 	case "json":
-		data, err := ExportSchemaJSON(h.Schema)
+		data, err := ExportSchemaJSON(schema)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -30,7 +31,7 @@ func (h *Handlers) ExportSchema(c *gin.Context) {
 		c.Data(http.StatusOK, "application/json", data)
 
 	case "yaml":
-		data, err := ExportSchemaYAML(h.Schema)
+		data, err := ExportSchemaYAML(schema)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -39,21 +40,21 @@ func (h *Handlers) ExportSchema(c *gin.Context) {
 		c.Data(http.StatusOK, "text/yaml; charset=utf-8", data)
 
 	case "dbml":
-		content := ExportSchemaDBML(h.Schema)
+		content := ExportSchemaDBML(schema)
 		c.Header("Content-Disposition", "attachment; filename=schema.dbml")
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(content))
 
 	case "png":
 		c.Header("Content-Disposition", "attachment; filename=erd.png")
 		c.Header("Content-Type", "image/png")
-		if err := RenderERDPNG(h.Schema, c.Writer); err != nil {
+		if err := RenderERDPNG(schema, c.Writer); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
 
 	case "pdf":
 		c.Header("Content-Disposition", "attachment; filename=erd.pdf")
 		c.Header("Content-Type", "application/pdf")
-		if err := RenderERDPDF(h.Schema, c.Writer); err != nil {
+		if err := RenderERDPDF(schema, c.Writer); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
 
@@ -64,7 +65,7 @@ func (h *Handlers) ExportSchema(c *gin.Context) {
 
 // ExportGoModels handles GET /api/export/models
 func (h *Handlers) ExportGoModels(c *gin.Context) {
-	code := GenerateGoModels(h.Schema)
+	code := GenerateGoModels(h.visibleSchema())
 	c.Header("Content-Disposition", "attachment; filename=models.go")
 	c.Data(http.StatusOK, "text/x-go; charset=utf-8", []byte(code))
 }

@@ -6,6 +6,28 @@ GORM Studio is designed as a **development and debugging tool**. It provides dir
 
 **Do not expose GORM Studio on public-facing servers without authentication and access controls.** By default, anyone who can reach the studio URL has full read/write access to your database.
 
+## ⚠️ Studio bypasses application-layer access control
+
+GORM Studio talks to your database through GORM but **outside your application's
+request handlers**. Any access control your app enforces in those handlers —
+GORM callbacks, query scopes, multi-tenancy filters, row-ownership checks
+(e.g. Grit's `--tenant-owned` / `--owned-by`), soft ACLs — **does not apply to
+Studio**. An operator with Studio access can read and edit **every row in every
+table**, across all tenants and owners, unless you tell Studio how to restrict
+them.
+
+If you mount Studio in a multi-tenant or row-scoped application, you must do one
+of the following:
+
+1. **Set a `Scope`** (see [Row-level scoping](#row-level-scoping-multi-tenancy))
+   so every query Studio builds is constrained the way your app would constrain
+   it, **and** set `DisableSQL: true` (the raw SQL editor cannot be scoped).
+2. **Restrict who can reach Studio** to trusted operators who are allowed to see
+   all tenants' data, and treat that access as god-mode.
+
+Do not assume "authenticated Studio access" is equivalent to "application-level
+access controls apply." It is not.
+
 ## Threat Model
 
 GORM Studio is intended for:
@@ -16,7 +38,9 @@ GORM Studio is intended for:
 It is **not** designed for:
 - Public-facing production use
 - Untrusted user environments
-- Multi-tenant applications without isolation
+- Multi-tenant applications **without a configured `Scope`** (see
+  [Row-level scoping](#row-level-scoping-multi-tenancy)) — without it, Studio
+  sees every tenant's data
 
 ## Built-in Security Measures
 
@@ -55,6 +79,77 @@ studio.Mount(router, db, models, studio.Config{
     DisableSQL: true,
 })
 ```
+
+## Row-level scoping (multi-tenancy)
+
+Set `Scope` to constrain every query Studio builds — row listing, single-row
+reads, updates, deletes, relations, and exports. Use it to reproduce the
+row-level isolation your application enforces (tenant, owner, org, …).
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    DisableSQL: true, // required: the raw SQL editor cannot be scoped
+    Scope: func(c *gin.Context, table string, tx *gorm.DB) *gorm.DB {
+        // Resolve the active tenant from the request (set by your auth middleware).
+        tenantID := c.GetString("tenant_id")
+        // Only constrain tables that actually have the column.
+        switch table {
+        case "orders", "invoices", "customers":
+            return tx.Where("tenant_id = ?", tenantID)
+        }
+        return tx // other tables unaffected
+    },
+})
+```
+
+Notes and limitations:
+
+- **The SQL editor is not scoped.** Always pair `Scope` with `DisableSQL: true`.
+  Studio logs a warning at startup if you don't.
+- **Row creation is not auto-scoped.** A `Scope` is a `WHERE` constraint, so it
+  governs which rows can be read/updated/deleted, not what a new row is stamped
+  with. If operators must not create cross-tenant rows, mark those tables
+  read-only (below) or keep Studio read-only.
+- Return the query unchanged for tables the scope doesn't apply to.
+
+## Per-table permissions
+
+`TablePolicy` restricts individual tables independently of the global
+`ReadOnly` flag:
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    TablePolicy: studio.TablePolicy{
+        Hidden:   []string{"secrets", "payment_tokens"}, // never exposed at all
+        ReadOnly: []string{"audit_log", "ledger_entries"}, // browsable, not editable
+    },
+})
+```
+
+- **Hidden** tables are omitted from the schema, return 404 on direct access,
+  and are excluded from all exports. References to them are scrubbed from other
+  tables' relations and foreign keys so their names don't leak.
+- **ReadOnly** tables can be browsed and exported, but create/update/delete,
+  bulk delete, and imports targeting them return 403.
+
+## Audit logging
+
+Set `AuditLogger` to record every mutation performed through Studio (row
+create/update/delete, bulk delete, raw SQL writes, and imports). Use
+`studio.DefaultAuditLogger` for simple stdout logging, or supply your own to
+forward events to your logging/audit pipeline.
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    AuditLogger: func(e studio.AuditEvent) {
+        // e.Time, e.Actor, e.Action, e.Table, e.RowID, e.Rows, e.Query, e.Success, e.Err
+        myAuditSink.Record(e)
+    },
+})
+```
+
+The `Actor` is taken from the request context if your auth middleware records
+it under `studio_user`, `user`, `username`, or gin's basic-auth user key.
 
 ## Adding Authentication
 

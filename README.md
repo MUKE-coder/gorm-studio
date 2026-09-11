@@ -190,8 +190,35 @@ studio.Mount(router, db, models, studio.Config{
     Prefix:           "/studio",       // URL prefix (default: "/studio")
     ReadOnly:         false,           // Disable write operations
     DisableSQL:       false,           // Disable raw SQL editor
-    CORSAllowOrigins: []string{},     // Allowed CORS origins
+    CORSAllowOrigins: []string{},      // Allowed CORS origins
     AuthMiddleware:   nil,             // Authentication middleware
+    Scope:            nil,             // Row-level query scoping (multi-tenancy)
+    TablePolicy:      studio.TablePolicy{}, // Hidden / read-only tables
+    AuditLogger:      nil,             // Record mutations performed via Studio
+})
+```
+
+> **Multi-tenant apps:** Studio bypasses your application's request-scoped
+> access control. Set a `Scope` (and `DisableSQL: true`) to enforce tenant/row
+> isolation, or every operator sees all tenants' data. See
+> [docs/security.md](docs/security.md#-studio-bypasses-application-layer-access-control).
+
+### Row-level scoping, per-table permissions & audit
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    DisableSQL: true, // the SQL editor cannot be scoped
+    Scope: func(c *gin.Context, table string, tx *gorm.DB) *gorm.DB {
+        if table == "orders" {
+            return tx.Where("tenant_id = ?", c.GetString("tenant_id"))
+        }
+        return tx
+    },
+    TablePolicy: studio.TablePolicy{
+        Hidden:   []string{"payment_tokens"}, // never exposed
+        ReadOnly: []string{"audit_log"},      // browsable, not editable
+    },
+    AuditLogger: studio.DefaultAuditLogger, // log every mutation
 })
 ```
 

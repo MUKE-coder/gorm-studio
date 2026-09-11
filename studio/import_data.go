@@ -66,6 +66,7 @@ func (h *Handlers) ImportData(c *gin.Context) {
 	}
 
 	if err != nil {
+		h.audit(c, AuditEvent{Action: "import_data", Table: tableName, Success: false, Err: err.Error()})
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -76,6 +77,7 @@ func (h *Handlers) ImportData(c *gin.Context) {
 		h.Schema = schema
 	}
 
+	h.audit(c, AuditEvent{Action: "import_data", Tables: tablesAffected, Rows: rowsInserted, Success: true})
 	c.JSON(http.StatusOK, gin.H{
 		"message":         "data imported successfully",
 		"rows_inserted":   rowsInserted,
@@ -90,8 +92,8 @@ func (h *Handlers) importDataJSON(data []byte, tableName string) (int64, []strin
 		var totalRows int64
 		var tables []string
 		for tName, rows := range multiTable {
-			if h.getTableInfo(tName) == nil {
-				continue
+			if err := h.tableWritable(tName); err != nil {
+				return 0, nil, err
 			}
 			for _, row := range rows {
 				filtered := filterValidColumns(h.Schema, tName, row)
@@ -111,8 +113,8 @@ func (h *Handlers) importDataJSON(data []byte, tableName string) (int64, []strin
 	if tableName == "" {
 		return 0, nil, fmt.Errorf("for single-table JSON arrays, the 'table' parameter is required")
 	}
-	if h.getTableInfo(tableName) == nil {
-		return 0, nil, fmt.Errorf("table not found: %s", tableName)
+	if err := h.tableWritable(tableName); err != nil {
+		return 0, nil, err
 	}
 
 	var rows []map[string]interface{}
@@ -132,8 +134,8 @@ func (h *Handlers) importDataJSON(data []byte, tableName string) (int64, []strin
 }
 
 func (h *Handlers) importDataCSV(data []byte, tableName string) (int64, error) {
-	if h.getTableInfo(tableName) == nil {
-		return 0, fmt.Errorf("table not found: %s", tableName)
+	if err := h.tableWritable(tableName); err != nil {
+		return 0, err
 	}
 
 	reader := csv.NewReader(bytes.NewReader(data))
@@ -225,6 +227,13 @@ func (h *Handlers) importDataSQL(content string) (int64, []string, error) {
 		stmts = append(stmts, stmt)
 	}
 
+	// Refuse the whole import if it targets a hidden or read-only table.
+	for t := range tablesSet {
+		if err := h.tableWritable(t); err != nil {
+			return 0, nil, err
+		}
+	}
+
 	// Execute inside a transaction so a mid-batch failure rolls back cleanly.
 	var count int64
 	err := h.DB.Transaction(func(tx *gorm.DB) error {
@@ -248,8 +257,8 @@ func (h *Handlers) importDataSQL(content string) (int64, []string, error) {
 }
 
 func (h *Handlers) importDataExcel(fileBytes []byte, tableName string) (int64, error) {
-	if h.getTableInfo(tableName) == nil {
-		return 0, fmt.Errorf("table not found: %s", tableName)
+	if err := h.tableWritable(tableName); err != nil {
+		return 0, err
 	}
 
 	f, err := excelize.OpenReader(bytes.NewReader(fileBytes))

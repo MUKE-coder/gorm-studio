@@ -73,6 +73,7 @@ func (h *Handlers) ImportGoModels(c *gin.Context) {
 		h.Schema = schema
 	}
 
+	h.audit(c, AuditEvent{Action: "import_models", Tables: tablesCreated, Rows: int64(len(tablesCreated)), Success: true})
 	c.JSON(http.StatusOK, gin.H{
 		"message":        "models imported successfully",
 		"tables_created": tablesCreated,

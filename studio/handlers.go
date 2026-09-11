@@ -18,6 +18,57 @@ type Handlers struct {
 	Models   []interface{}
 	Schema   *SchemaInfo
 	ReadOnly bool
+
+	// Scope, Hidden, ReadOnlyTables, and Audit mirror the corresponding Config
+	// fields and are populated by Mount.
+	Scope          func(c *gin.Context, table string, tx *gorm.DB) *gorm.DB
+	Hidden         map[string]bool
+	ReadOnlyTables map[string]bool
+	Audit          func(AuditEvent)
+}
+
+// newNameSet builds a case-insensitive lookup set of table names.
+func newNameSet(names []string) map[string]bool {
+	if len(names) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[strings.ToLower(strings.TrimSpace(n))] = true
+	}
+	return set
+}
+
+// isHidden reports whether a table is hidden by the table policy.
+func (h *Handlers) isHidden(table string) bool {
+	return h.Hidden[strings.ToLower(table)]
+}
+
+// isTableReadOnly reports whether a table is read-only by the table policy.
+func (h *Handlers) isTableReadOnly(table string) bool {
+	return h.ReadOnlyTables[strings.ToLower(table)]
+}
+
+// tableWritable reports whether a table may be mutated through Studio: it must
+// exist, not be hidden (getTableInfo already excludes hidden tables), and not
+// be marked read-only by the table policy.
+func (h *Handlers) tableWritable(name string) error {
+	if h.getTableInfo(name) == nil {
+		return fmt.Errorf("table not found: %s", name)
+	}
+	if h.isTableReadOnly(name) {
+		return fmt.Errorf("table is read-only in Studio: %s", name)
+	}
+	return nil
+}
+
+// scoped returns a query for tableName with the configured Scope applied.
+func (h *Handlers) scoped(c *gin.Context, tableName string) *gorm.DB {
+	tx := h.DB.Table(tableName)
+	if h.Scope != nil {
+		tx = h.Scope(c, tableName, tx)
+	}
+	return tx
 }
 
 // NewHandlers creates a new Handlers instance
@@ -50,8 +101,12 @@ func (h *Handlers) qi(name string) string {
 	return quoteIdent(h.DB.Dialector.Name(), name)
 }
 
-// getTableInfo returns the TableInfo for a given table name.
+// getTableInfo returns the TableInfo for a given table name. Hidden tables are
+// treated as non-existent so every handler that resolves a table returns 404.
 func (h *Handlers) getTableInfo(tableName string) *TableInfo {
+	if h.isHidden(tableName) {
+		return nil
+	}
 	for i := range h.Schema.Tables {
 		if strings.EqualFold(h.Schema.Tables[i].Name, tableName) {
 			return &h.Schema.Tables[i]
@@ -74,14 +129,54 @@ func (h *Handlers) hasSoftDelete(tableName string) bool {
 	return false
 }
 
-// GetSchema returns the full database schema
+// GetSchema returns the full database schema, omitting hidden tables.
 func (h *Handlers) GetSchema(c *gin.Context) {
 	for i := range h.Schema.Tables {
 		var count int64
 		h.DB.Table(h.Schema.Tables[i].Name).Count(&count)
 		h.Schema.Tables[i].RowCount = count
 	}
-	c.JSON(http.StatusOK, h.Schema)
+	c.JSON(http.StatusOK, h.visibleSchema())
+}
+
+// visibleSchema returns a copy of the schema with hidden tables removed. It
+// also scrubs references to hidden tables from the surviving tables (relations
+// and foreign-key metadata) so a hidden table's name never leaks through a
+// table that links to it.
+func (h *Handlers) visibleSchema() *SchemaInfo {
+	if len(h.Hidden) == 0 {
+		return h.Schema
+	}
+	out := &SchemaInfo{Database: h.Schema.Database, Driver: h.Schema.Driver}
+	for _, t := range h.Schema.Tables {
+		if h.isHidden(t.Name) {
+			continue
+		}
+		vt := t // copy the struct; replace slices below so h.Schema is untouched
+
+		cols := make([]ColumnInfo, 0, len(t.Columns))
+		for _, col := range t.Columns {
+			if col.IsForeignKey && h.isHidden(col.ForeignTable) {
+				col.IsForeignKey = false
+				col.ForeignTable = ""
+				col.ForeignKey = ""
+			}
+			cols = append(cols, col)
+		}
+		vt.Columns = cols
+
+		var rels []RelationInfo
+		for _, r := range t.Relations {
+			if h.isHidden(r.Table) || h.isHidden(r.JoinTable) {
+				continue
+			}
+			rels = append(rels, r)
+		}
+		vt.Relations = rels
+
+		out.Tables = append(out.Tables, vt)
+	}
+	return out
 }
 
 // RefreshSchema re-introspects the database
@@ -123,8 +218,8 @@ func (h *Handlers) GetRows(c *gin.Context) {
 		sortOrder = "asc"
 	}
 
-	// Build query
-	query := h.DB.Table(tableName)
+	// Build query (with any configured row-level Scope applied)
+	query := h.scoped(c, tableName)
 
 	// Soft delete: by default hide deleted rows unless show_deleted=true
 	if h.hasSoftDelete(tableName) {
@@ -211,7 +306,7 @@ func (h *Handlers) GetRow(c *gin.Context) {
 		return
 	}
 
-	query := h.DB.Table(tableName)
+	query := h.scoped(c, tableName)
 	query, err := applyCompositePK(query, h, pks, id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -236,6 +331,10 @@ func (h *Handlers) CreateRow(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": (&ErrTableNotFound{Table: tableName}).Error()})
 		return
 	}
+	if h.isTableReadOnly(tableName) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "table is read-only in Studio"})
+		return
+	}
 
 	var data map[string]interface{}
 	if err := c.ShouldBindJSON(&data); err != nil {
@@ -247,10 +346,12 @@ func (h *Handlers) CreateRow(c *gin.Context) {
 
 	result := h.DB.Table(tableName).Create(filtered)
 	if result.Error != nil {
+		h.audit(c, AuditEvent{Action: "create_row", Table: tableName, Success: false, Err: result.Error.Error()})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 		return
 	}
 
+	h.audit(c, AuditEvent{Action: "create_row", Table: tableName, Rows: result.RowsAffected, Success: true})
 	c.JSON(http.StatusCreated, gin.H{"message": "created", "data": filtered})
 }
 
@@ -261,6 +362,10 @@ func (h *Handlers) UpdateRow(c *gin.Context) {
 
 	if h.getTableInfo(tableName) == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": (&ErrTableNotFound{Table: tableName}).Error()})
+		return
+	}
+	if h.isTableReadOnly(tableName) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "table is read-only in Studio"})
 		return
 	}
 
@@ -282,7 +387,7 @@ func (h *Handlers) UpdateRow(c *gin.Context) {
 	}
 	filtered := filterValidColumns(h.Schema, tableName, data)
 
-	query := h.DB.Table(tableName)
+	query := h.scoped(c, tableName)
 	query, err := applyCompositePK(query, h, pks, id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -291,6 +396,7 @@ func (h *Handlers) UpdateRow(c *gin.Context) {
 
 	result := query.Updates(filtered)
 	if result.Error != nil {
+		h.audit(c, AuditEvent{Action: "update_row", Table: tableName, RowID: id, Success: false, Err: result.Error.Error()})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 		return
 	}
@@ -300,6 +406,7 @@ func (h *Handlers) UpdateRow(c *gin.Context) {
 		return
 	}
 
+	h.audit(c, AuditEvent{Action: "update_row", Table: tableName, RowID: id, Rows: result.RowsAffected, Success: true})
 	c.JSON(http.StatusOK, gin.H{"message": "updated", "rows_affected": result.RowsAffected})
 }
 
@@ -312,6 +419,10 @@ func (h *Handlers) DeleteRow(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": (&ErrTableNotFound{Table: tableName}).Error()})
 		return
 	}
+	if h.isTableReadOnly(tableName) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "table is read-only in Studio"})
+		return
+	}
 
 	pks := getPrimaryKeys(h.Schema, tableName)
 	if len(pks) == 0 {
@@ -319,7 +430,7 @@ func (h *Handlers) DeleteRow(c *gin.Context) {
 		return
 	}
 
-	query := h.DB.Table(tableName)
+	query := h.scoped(c, tableName)
 	query, err := applyCompositePK(query, h, pks, id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -328,6 +439,7 @@ func (h *Handlers) DeleteRow(c *gin.Context) {
 
 	result := query.Delete(nil)
 	if result.Error != nil {
+		h.audit(c, AuditEvent{Action: "delete_row", Table: tableName, RowID: id, Success: false, Err: result.Error.Error()})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 		return
 	}
@@ -337,6 +449,7 @@ func (h *Handlers) DeleteRow(c *gin.Context) {
 		return
 	}
 
+	h.audit(c, AuditEvent{Action: "delete_row", Table: tableName, RowID: id, Rows: result.RowsAffected, Success: true})
 	c.JSON(http.StatusOK, gin.H{"message": "deleted", "rows_affected": result.RowsAffected})
 }
 
@@ -346,6 +459,10 @@ func (h *Handlers) BulkDelete(c *gin.Context) {
 
 	if h.getTableInfo(tableName) == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": (&ErrTableNotFound{Table: tableName}).Error()})
+		return
+	}
+	if h.isTableReadOnly(tableName) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "table is read-only in Studio"})
 		return
 	}
 
@@ -370,12 +487,14 @@ func (h *Handlers) BulkDelete(c *gin.Context) {
 		return
 	}
 
-	result := h.DB.Table(tableName).Where(h.qi(pk)+" IN ?", body.IDs).Delete(nil)
+	result := h.scoped(c, tableName).Where(h.qi(pk)+" IN ?", body.IDs).Delete(nil)
 	if result.Error != nil {
+		h.audit(c, AuditEvent{Action: "bulk_delete", Table: tableName, Success: false, Err: result.Error.Error()})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 		return
 	}
 
+	h.audit(c, AuditEvent{Action: "bulk_delete", Table: tableName, Rows: result.RowsAffected, Success: true})
 	c.JSON(http.StatusOK, gin.H{"message": "deleted", "rows_affected": result.RowsAffected})
 }
 
@@ -409,18 +528,24 @@ func (h *Handlers) GetRelatedRows(c *gin.Context) {
 		return
 	}
 
+	// Don't let a relation navigate into a hidden table.
+	if h.isHidden(relation.Table) {
+		c.JSON(http.StatusNotFound, gin.H{"error": (&ErrRelationNotFound{Table: tableName, Relation: relName}).Error()})
+		return
+	}
+
 	var rows []map[string]interface{}
 	var result *gorm.DB
 
 	switch relation.Type {
 	case "has_one", "has_many":
-		result = h.DB.Table(relation.Table).Where(h.qi(relation.ForeignKey)+" = ?", id).Find(&rows)
+		result = h.scoped(c, relation.Table).Where(h.qi(relation.ForeignKey)+" = ?", id).Find(&rows)
 	case "belongs_to":
 		pk := getPrimaryKey(h.Schema, tableName)
 		var sourceRow map[string]interface{}
-		h.DB.Table(tableName).Where(h.qi(pk)+" = ?", id).First(&sourceRow)
+		h.scoped(c, tableName).Where(h.qi(pk)+" = ?", id).First(&sourceRow)
 		if fkVal, ok := sourceRow[relation.ForeignKey]; ok {
-			result = h.DB.Table(relation.Table).Where(h.qi(relation.ReferenceKey)+" = ?", fkVal).Find(&rows)
+			result = h.scoped(c, relation.Table).Where(h.qi(relation.ReferenceKey)+" = ?", fkVal).Find(&rows)
 		}
 	case "many_to_many":
 		if relation.JoinTable != "" {
@@ -431,7 +556,7 @@ func (h *Handlers) GetRelatedRows(c *gin.Context) {
 				h.qi(relation.JoinTable), h.qi(relation.ForeignKey),
 				h.qi(relation.Table), h.qi(refPK))
 			whereSQL := fmt.Sprintf("%s.%s = ?", h.qi(relation.JoinTable), h.qi(pk))
-			result = h.DB.Table(relation.Table).
+			result = h.scoped(c, relation.Table).
 				Joins(joinSQL).
 				Where(whereSQL, id).
 				Find(&rows)
@@ -572,10 +697,12 @@ func (h *Handlers) ExecuteSQL(c *gin.Context) {
 	} else {
 		result := h.DB.Exec(query)
 		if result.Error != nil {
+			h.audit(c, AuditEvent{Action: "sql", Query: query, Success: false, Err: result.Error.Error()})
 			c.JSON(http.StatusBadRequest, gin.H{"error": result.Error.Error()})
 			return
 		}
 
+		h.audit(c, AuditEvent{Action: "sql", Query: query, Rows: result.RowsAffected, Success: true})
 		c.JSON(http.StatusOK, gin.H{
 			"rows_affected": result.RowsAffected,
 			"message":       "query executed successfully",
@@ -595,8 +722,8 @@ func (h *Handlers) ExportTable(c *gin.Context) {
 		return
 	}
 
-	// Fetch all rows (with optional soft delete filtering)
-	query := h.DB.Table(tableName)
+	// Fetch all rows (with any Scope and optional soft delete filtering)
+	query := h.scoped(c, tableName)
 	if h.hasSoftDelete(tableName) {
 		showDeleted := c.DefaultQuery("show_deleted", "false")
 		if showDeleted != "true" {

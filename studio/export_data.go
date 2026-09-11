@@ -36,9 +36,9 @@ func (h *Handlers) exportAllDataJSON(c *gin.Context) {
 	}
 
 	tablesData := make(map[string]interface{})
-	for _, table := range h.Schema.Tables {
+	for _, table := range h.visibleSchema().Tables {
 		var rows []map[string]interface{}
-		if err := h.DB.Table(table.Name).Find(&rows).Error; err != nil {
+		if err := h.scoped(c, table.Name).Find(&rows).Error; err != nil {
 			continue
 		}
 		colNames := make([]string, len(table.Columns))
@@ -68,9 +68,9 @@ func (h *Handlers) exportAllDataCSV(c *gin.Context) {
 	zw := zip.NewWriter(c.Writer)
 	defer zw.Close()
 
-	for _, table := range h.Schema.Tables {
+	for _, table := range h.visibleSchema().Tables {
 		var rows []map[string]interface{}
-		if err := h.DB.Table(table.Name).Find(&rows).Error; err != nil {
+		if err := h.scoped(c, table.Name).Find(&rows).Error; err != nil {
 			continue
 		}
 
@@ -121,9 +121,9 @@ func (h *Handlers) exportAllDataSQL(c *gin.Context) {
 
 	driver := h.DB.Dialector.Name()
 
-	for _, table := range h.Schema.Tables {
+	for _, table := range h.visibleSchema().Tables {
 		var rows []map[string]interface{}
-		if err := h.DB.Table(table.Name).Find(&rows).Error; err != nil {
+		if err := h.scoped(c, table.Name).Find(&rows).Error; err != nil {
 			continue
 		}
 

@@ -24,6 +24,43 @@ type Config struct {
 	// When set, all studio API routes are protected by this middleware.
 	// The frontend HTML is served without auth; the React UI shows a login form on 401.
 	AuthMiddleware gin.HandlerFunc
+
+	// Scope, when set, is applied to every data query Studio builds (row
+	// listing/reading, updates, deletes, relations, and exports). Use it to
+	// enforce row-level constraints — most importantly tenant isolation — that
+	// your application normally applies through GORM callbacks but that Studio
+	// bypasses because it talks to the database directly.
+	//
+	// The function receives the request context (so it can read the active
+	// tenant/user), the target table name, and the query being built, and
+	// should return the query with any additional constraints applied. Return
+	// the query unchanged for tables the scope does not apply to.
+	//
+	// IMPORTANT: the raw SQL editor cannot be scoped. When Scope is set you
+	// should also set DisableSQL: true; otherwise an operator can read/write
+	// across the boundary the Scope enforces.
+	Scope func(c *gin.Context, table string, tx *gorm.DB) *gorm.DB
+
+	// TablePolicy controls per-table visibility and mutability, independent of
+	// the global ReadOnly flag.
+	TablePolicy TablePolicy
+
+	// AuditLogger, when set, receives an event for every mutating action
+	// performed through Studio (row create/update/delete, bulk delete, raw SQL
+	// writes, and imports). Use DefaultAuditLogger for simple stdout logging.
+	AuditLogger func(AuditEvent)
+}
+
+// TablePolicy restricts which tables Studio exposes and which it may mutate.
+type TablePolicy struct {
+	// Hidden tables are never exposed: they are omitted from the schema and any
+	// direct request for them returns 404. Use this for tables holding secrets
+	// (encrypted PII, payment tokens, credentials).
+	Hidden []string
+	// ReadOnly tables can be browsed and exported but never mutated through
+	// Studio; write requests return 403. The global ReadOnly flag still wins
+	// over this (it disables all mutation routes entirely).
+	ReadOnly []string
 }
 
 // DefaultConfig returns the default studio configuration
@@ -55,12 +92,19 @@ func Mount(router *gin.Engine, db *gorm.DB, models []interface{}, configs ...Con
 	if !cfg.DisableSQL && cfg.AuthMiddleware == nil {
 		log.Println("[GORM Studio] WARNING: Raw SQL endpoint is enabled without authentication. Consider setting DisableSQL: true or adding AuthMiddleware.")
 	}
+	if cfg.Scope != nil && !cfg.DisableSQL {
+		log.Println("[GORM Studio] WARNING: A Scope is configured but the raw SQL editor is enabled. The SQL editor bypasses Scope — set DisableSQL: true to keep row-level isolation (e.g. multi-tenancy) enforced.")
+	}
 
 	handlers, err := NewHandlers(db, models)
 	if err != nil {
 		return fmt.Errorf("mounting studio: %w", err)
 	}
 	handlers.ReadOnly = cfg.ReadOnly
+	handlers.Scope = cfg.Scope
+	handlers.Audit = cfg.AuditLogger
+	handlers.Hidden = newNameSet(cfg.TablePolicy.Hidden)
+	handlers.ReadOnlyTables = newNameSet(cfg.TablePolicy.ReadOnly)
 
 	group := router.Group(cfg.Prefix)
 

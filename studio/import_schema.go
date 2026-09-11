@@ -70,6 +70,7 @@ func (h *Handlers) ImportSchema(c *gin.Context) {
 	// Generate Go code
 	goCode := GenerateGoModels(h.Schema)
 
+	h.audit(c, AuditEvent{Action: "import_schema", Tables: tablesCreated, Rows: int64(len(tablesCreated)), Success: true})
 	c.JSON(http.StatusOK, gin.H{
 		"message":        "schema imported successfully",
 		"tables_created": tablesCreated,
