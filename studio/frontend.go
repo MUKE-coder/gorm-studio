@@ -312,7 +312,9 @@ const API = window.__STUDIO_CONFIG__.prefix + '/api';
 const CONFIG = window.__STUDIO_CONFIG__;
 
 // ─── Auth State ─────────────────────────────────────────────
-let authToken = sessionStorage.getItem('gorm_studio_auth') || null;
+// Kept in memory only (never persisted) so it can't be read from storage by a
+// same-origin XSS. A page refresh clears it and re-prompts for login.
+let authToken = null;
 let onAuthRequired = null;
 
 // ─── API Helper ─────────────────────────────────────────────
@@ -327,7 +329,6 @@ async function api(path, opts = {}) {
   });
   if (res.status === 401) {
     authToken = null;
-    sessionStorage.removeItem('gorm_studio_auth');
     if (onAuthRequired) onAuthRequired();
     throw new Error('Authentication required');
   }
@@ -343,7 +344,6 @@ async function downloadFile(url) {
   const res = await fetch(url, { credentials: 'omit', headers });
   if (res.status === 401) {
     authToken = null;
-    sessionStorage.removeItem('gorm_studio_auth');
     if (onAuthRequired) onAuthRequired();
     throw new Error('Authentication required');
   }
@@ -1322,8 +1322,7 @@ function App() {
   useEffect(() => { loadSchema(); }, [loadSchema]);
 
   const handleLogin = (token) => {
-    authToken = token;
-    sessionStorage.setItem('gorm_studio_auth', token);
+    authToken = token; // in-memory only; not persisted to storage
     setNeedsAuth(false);
     loadSchema();
   };

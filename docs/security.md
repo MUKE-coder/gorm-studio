@@ -342,10 +342,41 @@ While the CRUD endpoints use parameterized queries, the SQL editor endpoint (`PO
 
 Column and table names used in dynamically built SQL are both validated against the schema **and** quoted using dialect-appropriate quoting (`"` for SQLite/PostgreSQL, `` ` `` for MySQL). This provides defense-in-depth: even if a column name somehow bypassed validation, quoting prevents it from breaking out of the identifier context.
 
-### No CSRF Protection
+### Credential handling (login UI)
 
-The API does not include CSRF tokens. If the studio is accessible from a web browser with active sessions to other sites, consider adding CSRF middleware.
+When `AuthMiddleware` is set, the React UI collects credentials and sends them in
+the `Authorization` header. The token is held **in memory only** — it is never
+written to `localStorage`/`sessionStorage`, so a same-origin XSS cannot read it
+from storage, and a page refresh clears it and re-prompts for login. Always
+serve Studio over HTTPS so the header is protected in transit.
 
-### No Rate Limiting
+### Security headers
 
-There is no built-in rate limiting. For exposed environments, add rate limiting middleware to prevent abuse.
+Studio sets `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and
+`Referrer-Policy: no-referrer` on every response, and serves the HTML page with
+a `Content-Security-Policy` that pins script/style/font origins to the CDNs it
+uses and forbids framing (`frame-ancestors 'none'`).
+
+### CSRF
+
+Studio authenticates via the `Authorization` header, not cookies. Browsers do
+not attach that header to cross-site requests, so the API is not exposed to
+classic cookie-based CSRF. If you place Studio behind a cookie-based auth layer
+of your own, add CSRF protection at that layer.
+
+### Rate Limiting
+
+Studio can rate-limit its most expensive endpoints per client IP, independent
+of the host app:
+
+```go
+studio.Mount(router, db, models, studio.Config{
+    RateLimit: studio.RateLimitConfig{
+        SQLPerMinute:    30,
+        ImportPerMinute: 10,
+    },
+})
+```
+
+Requests over the limit receive 429. The zero value applies no limit; for
+exposed environments, set both.

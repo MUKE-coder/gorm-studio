@@ -59,6 +59,33 @@ type Config struct {
 	// MaxImportRows caps how many rows a single import may insert (per file).
 	// Zero uses DefaultMaxImportRows; a negative value disables the limit.
 	MaxImportRows int
+
+	// RateLimit applies Studio-specific per-client-IP rate limiting to the SQL
+	// and import endpoints. The zero value applies no limit.
+	RateLimit RateLimitConfig
+}
+
+// contentSecurityPolicy is served with the Studio HTML page. It pins script and
+// style origins to the CDNs the app loads from while still permitting the
+// inline/eval the bundled Babel+React setup requires, and forbids framing.
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; " +
+	"style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " +
+	"font-src https://fonts.gstatic.com; " +
+	"img-src 'self' data:; " +
+	"connect-src 'self'; " +
+	"frame-ancestors 'none'; " +
+	"base-uri 'self'; " +
+	"form-action 'self'"
+
+// securityHeaders sets conservative security headers on every Studio response.
+func securityHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("Referrer-Policy", "no-referrer")
+		c.Next()
+	}
 }
 
 // Import limit defaults.
@@ -133,7 +160,13 @@ func Mount(router *gin.Engine, db *gorm.DB, models []interface{}, configs ...Con
 		handlers.MaxImportRows = DefaultMaxImportRows
 	}
 
+	sqlLimiter := newRateLimiter(cfg.RateLimit.SQLPerMinute)
+	importLimiter := newRateLimiter(cfg.RateLimit.ImportPerMinute)
+
 	group := router.Group(cfg.Prefix)
+
+	// Conservative security headers on every Studio response.
+	group.Use(securityHeaders())
 
 	// Add CORS middleware if configured
 	if len(cfg.CORSAllowOrigins) > 0 {
@@ -147,6 +180,7 @@ func Mount(router *gin.Engine, db *gorm.DB, models []interface{}, configs ...Con
 
 	// Serve frontend without auth (React app handles login UI)
 	group.GET("", func(c *gin.Context) {
+		c.Header("Content-Security-Policy", contentSecurityPolicy)
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, GetFrontendHTML(cfg))
 	})
@@ -194,16 +228,16 @@ func Mount(router *gin.Engine, db *gorm.DB, models []interface{}, configs ...Con
 			api.GET("/export/data", handlers.ExportAllData)
 			api.GET("/export/models", handlers.ExportGoModels)
 
-			// Import (gated by ReadOnly)
+			// Import (gated by ReadOnly, optionally rate-limited)
 			if !cfg.ReadOnly {
-				api.POST("/import/schema", handlers.ImportSchema)
-				api.POST("/import/data", handlers.ImportData)
-				api.POST("/import/models", handlers.ImportGoModels)
+				api.POST("/import/schema", withRateLimit(importLimiter, handlers.ImportSchema)...)
+				api.POST("/import/data", withRateLimit(importLimiter, handlers.ImportData)...)
+				api.POST("/import/models", withRateLimit(importLimiter, handlers.ImportGoModels)...)
 			}
 
-			// Raw SQL
+			// Raw SQL (optionally rate-limited)
 			if !cfg.DisableSQL {
-				api.POST("/sql", handlers.ExecuteSQL)
+				api.POST("/sql", withRateLimit(sqlLimiter, handlers.ExecuteSQL)...)
 			}
 
 			// DB stats

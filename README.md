@@ -197,8 +197,13 @@ studio.Mount(router, db, models, studio.Config{
     AuditLogger:      nil,             // Record mutations performed via Studio
     MaxImportBytes:   0,               // Max import upload size (0 = 32 MiB default)
     MaxImportRows:    0,               // Max rows per import (0 = 100k default)
+    RateLimit:        studio.RateLimitConfig{}, // Per-IP limits for /sql and /import/*
 })
 ```
+
+Studio sets security headers (CSP, `nosniff`, `X-Frame-Options: DENY`) on its
+responses, keeps the login token in memory only, and authenticates via the
+`Authorization` header (so it isn't exposed to cookie-based CSRF).
 
 Imports are size- and row-limited by default, validate column types before
 creating tables, and support a `?dry_run=true` preview. See
@@ -230,7 +235,7 @@ studio.Mount(router, db, models, studio.Config{
 
 ### Authentication
 
-When `AuthMiddleware` is configured, GORM Studio shows a custom login page instead of the browser's native auth popup. The React UI handles authentication gracefully — on 401, users see a themed login form with username/password fields. Credentials are stored in session storage for the duration of the browser session.
+When `AuthMiddleware` is configured, GORM Studio shows a custom login page instead of the browser's native auth popup. The React UI handles authentication gracefully — on 401, users see a themed login form with username/password fields. The credential token is kept **in memory only** (never written to browser storage), so a page refresh re-prompts for login. Always serve Studio over HTTPS.
 
 ```go
 // Protect with basic auth — users see a custom login page
