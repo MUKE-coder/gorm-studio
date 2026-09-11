@@ -75,7 +75,9 @@ func main() {
 	}
 
 	// Auto-migrate
-	db.AutoMigrate(&User{}, &Profile{}, &Post{}, &Comment{}, &Tag{})
+	if err := db.AutoMigrate(&User{}, &Profile{}, &Post{}, &Comment{}, &Tag{}); err != nil {
+		log.Fatal("Failed to migrate database:", err)
+	}
 
 	// Seed sample data
 	seedData(db)
@@ -108,7 +110,9 @@ func main() {
 	fmt.Println("║                                              ║")
 	fmt.Println("╚══════════════════════════════════════════════╝")
 
-	router.Run(":8080")
+	if err := router.Run(":8080"); err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
 }
 
 // ─── Seed Data ──────────────────────────────────────────────
