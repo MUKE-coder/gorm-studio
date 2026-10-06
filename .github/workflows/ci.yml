@@ -46,7 +46,9 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          # Pinned for reproducibility: "latest" silently moving to a new major
+          # (v2) changes the enabled linters and breaks CI on unchanged code.
+          version: v1.64.8
 
   fuzz:
     runs-on: ubuntu-latest

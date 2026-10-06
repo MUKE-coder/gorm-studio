@@ -128,7 +128,10 @@ studio.Mount(router, db, models, studio.Config{
 
 - **Hidden** tables are omitted from the schema, return 404 on direct access,
   and are excluded from all exports. References to them are scrubbed from other
-  tables' relations and foreign keys so their names don't leak.
+  tables' relations and foreign keys so their names don't leak. The raw SQL
+  editor also refuses (403) any statement that names a hidden table — a
+  conservative, fail-closed match, so a hidden name used even as a column or
+  string literal is rejected.
 - **ReadOnly** tables can be browsed and exported, but create/update/delete,
   bulk delete, and imports targeting them return 403.
 
@@ -165,7 +168,9 @@ CSV, XLSX, and Go source). To bound their blast radius:
   operation is bound to a context that is cancelled when it elapses, so an
   import can't hang the process indefinitely.
 - **Streaming XLSX.** Excel files are read row-by-row so a small upload that
-  decompresses to a huge sheet can't exhaust memory.
+  decompresses to a huge sheet can't exhaust memory. Parsing is also wrapped in
+  a `recover` so a crafted file that panics inside the XLSX library
+  (e.g. GO-2026-6452) fails with a clean error instead of a 500.
 - **Column-type validation.** Imported column types are checked against a plain
   type-name pattern before being written into `CREATE TABLE`, so a crafted type
   string can't inject DDL.

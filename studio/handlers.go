@@ -690,6 +690,26 @@ func classifySQL(raw string) (stmt string, blocked bool, isRead bool, err error)
 	return stmt, false, isRead, nil
 }
 
+// sqlReferencesHiddenTable returns the first hidden table name that appears as a
+// whole word anywhere in stmt, or "" if none do. The raw SQL editor cannot be
+// parsed and scoped the way the browse routes are, so to honor the
+// TablePolicy.Hidden guarantee ("never exposed") we fail closed: any statement
+// that so much as names a hidden table is refused. This is conservative — a
+// hidden name used as a column or string literal is also rejected — which is the
+// correct bias for a table holding secrets.
+func (h *Handlers) sqlReferencesHiddenTable(stmt string) string {
+	if len(h.Hidden) == 0 {
+		return ""
+	}
+	upper := strings.ToUpper(stmt)
+	for name := range h.Hidden {
+		if containsSQLWord(upper, strings.ToUpper(name)) {
+			return name
+		}
+	}
+	return ""
+}
+
 // ExecuteSQL runs a raw SQL query
 func (h *Handlers) ExecuteSQL(c *gin.Context) {
 	var body struct {
@@ -707,6 +727,13 @@ func (h *Handlers) ExecuteSQL(c *gin.Context) {
 	}
 	if blocked {
 		c.JSON(http.StatusForbidden, gin.H{"error": "this statement type is not allowed"})
+		return
+	}
+
+	// Honor TablePolicy.Hidden here too: the SQL editor must not reach a table
+	// the policy hides (see sqlReferencesHiddenTable).
+	if name := h.sqlReferencesHiddenTable(query); name != "" {
+		c.JSON(http.StatusForbidden, gin.H{"error": fmt.Sprintf("table %q is not accessible", name)})
 		return
 	}
 

@@ -121,6 +121,31 @@ func TestHiddenTable_ExcludedFromExport(t *testing.T) {
 	}
 }
 
+// Regression for #9: the raw SQL editor must not read a hidden table.
+func TestHiddenTable_BlockedInSQLEditor(t *testing.T) {
+	router, _ := setupPolicyRouter(t, Config{
+		TablePolicy: TablePolicy{Hidden: []string{"test_posts"}},
+	})
+
+	w := doRequest(router, "POST", "/studio/api/sql",
+		map[string]interface{}{"query": "SELECT * FROM test_posts"})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("SQL query against a hidden table should be 403, got %d: %s", w.Code, w.Body.String())
+	}
+	// Case-insensitive and resilient to formatting.
+	w = doRequest(router, "POST", "/studio/api/sql",
+		map[string]interface{}{"query": "select count(*) from  test_posts  where id > 0"})
+	if w.Code != http.StatusForbidden {
+		t.Errorf("hidden-table match should be case/space insensitive, got %d", w.Code)
+	}
+	// A visible table still works.
+	w = doRequest(router, "POST", "/studio/api/sql",
+		map[string]interface{}{"query": "SELECT * FROM test_users"})
+	if w.Code != http.StatusOK {
+		t.Fatalf("SQL query against a visible table should work, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // --- 1.2 TablePolicy: read-only per table ---
 
 func TestReadOnlyTable_BlocksMutations(t *testing.T) {

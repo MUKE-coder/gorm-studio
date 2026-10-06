@@ -5,6 +5,22 @@ All notable changes to GORM Studio are documented here. The format is based on
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (see
 [STABILITY.md](STABILITY.md)).
 
+## [1.1.1]
+
+Security fixes for two reported issues.
+
+### Security
+
+- **Hidden tables are now enforced on the raw SQL editor** (#9). Previously a
+  `TablePolicy.Hidden` table was omitted from the schema and 404'd on the browse
+  routes, but `POST /api/sql` could still `SELECT` from it. The SQL editor now
+  refuses (403) any statement that names a hidden table (a conservative,
+  fail-closed match).
+- **Crafted Excel imports can no longer panic the request** (#8, GO-2026-6452).
+  XLSX parsing is wrapped in a `recover`, so a malformed file that trips the
+  underlying library's panic returns a clean error instead of a 500 with a stack
+  trace.
+
 ## [1.1.0]
 
 This release is a security-hardening pass. All changes are backward compatible

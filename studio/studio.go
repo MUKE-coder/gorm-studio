@@ -105,9 +105,10 @@ const (
 
 // TablePolicy restricts which tables Studio exposes and which it may mutate.
 type TablePolicy struct {
-	// Hidden tables are never exposed: they are omitted from the schema and any
-	// direct request for them returns 404. Use this for tables holding secrets
-	// (encrypted PII, payment tokens, credentials).
+	// Hidden tables are never exposed: they are omitted from the schema, any
+	// direct request for them returns 404, they are left out of exports, and the
+	// raw SQL editor refuses (403) any statement that names one. Use this for
+	// tables holding secrets (encrypted PII, payment tokens, credentials).
 	Hidden []string
 	// ReadOnly tables can be browsed and exported but never mutated through
 	// Studio; write requests return 403. The global ReadOnly flag still wins

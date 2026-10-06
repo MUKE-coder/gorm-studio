@@ -315,7 +315,17 @@ func (h *Handlers) importDataSQL(db *gorm.DB, content string, dryRun bool) (int6
 	return count, tables, nil
 }
 
-func (h *Handlers) importDataExcel(db *gorm.DB, fileBytes []byte, tableName string, dryRun bool) (int64, error) {
+func (h *Handlers) importDataExcel(db *gorm.DB, fileBytes []byte, tableName string, dryRun bool) (count int64, err error) {
+	// excelize is affected by GO-2026-6452 — a crafted .xlsx can panic deep in
+	// its row reader (negative shared-string index), and there is no fixed
+	// release yet. Contain any panic and surface it as an ordinary error so the
+	// request fails cleanly with a 400 instead of a 500 and a stack trace.
+	defer func() {
+		if r := recover(); r != nil {
+			count, err = 0, fmt.Errorf("reading Excel file: the file is malformed")
+		}
+	}()
+
 	if err := h.tableWritable(tableName); err != nil {
 		return 0, err
 	}
@@ -360,7 +370,6 @@ func (h *Handlers) importDataExcel(db *gorm.DB, fileBytes []byte, tableName stri
 		return 0, fmt.Errorf("no valid columns found in Excel headers")
 	}
 
-	var count int64
 	for it.Next() {
 		if h.rowLimited(count) {
 			return 0, h.errImportTooManyRows()
